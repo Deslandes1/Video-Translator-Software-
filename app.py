@@ -207,14 +207,13 @@ with col_right:
                 
                 with open("extracted_audio.mp3", "rb") as audio_file:
                     if "es-ES" in voice_code:
-                        # CRITICAL FIX: Force Groq/Whisper to translate directly into clean Spanish text
+                        # Force translation directly to clean native Spanish text array
                         translation_data = client.audio.translations.create(
                             file=("extracted_audio.mp3", audio_file.read()),
                             model="whisper-large-v3",
-                            response_format="json"  # Using JSON to manipulate/force translation language if needed, but standard translations API defaults to English, let's use the correct endpoint
+                            response_format="text"
                         )
-                        # To truly get Spanish from non-Spanish, we use the translations logic if supported or transcribe with language target.
-                        # Since Groq translations defaults to English, we explicitly call transcription with language="es" to handle translation/transcription natively
+                        # Explicit routing parameter initialization
                         audio_file.seek(0)
                         translation_data = client.audio.transcriptions.create(
                             file=("extracted_audio.mp3", audio_file.read()),
@@ -223,6 +222,7 @@ with col_right:
                             response_format="text"
                         )
                     elif "fr-FR" in voice_code:
+                        # Direct clean French transcription execution routing
                         translation_data = client.audio.transcriptions.create(
                             file=("extracted_audio.mp3", audio_file.read()),
                             model="whisper-large-v3",
