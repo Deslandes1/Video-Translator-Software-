@@ -111,7 +111,6 @@ with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("<h4>Source Input Interface</h4>", unsafe_allow_html=True)
     
-    # Selecting the injection layer modality
     input_method = st.radio(
         "Select Input Source Layer:",
         ["Upload Video from this Computer (.MP4)", "Paste YouTube Embed Link"]
@@ -165,9 +164,9 @@ with col_right:
                 if os.path.exists(f"{output_filename}.mp3"):
                     os.remove(f"{output_filename}.mp3")
                 
-                # ROUTE A: Handle processing for external YouTube nodes
+                # ROUTE A: Handle processing for external YouTube nodes with Hardened Mobile Client Bypasses
                 if is_youtube:
-                    status_text.text("Connecting to native audio extraction streams...")
+                    status_text.text("Bypassing firewalls and connecting to streaming nodes...")
                     progress_bar.progress(25)
                     
                     ydl_opts = {
@@ -180,9 +179,15 @@ with col_right:
                         }],
                         'quiet': True,
                         'no_warnings': True,
+                        # High-level override args forcing YouTube to see request as an Android Client
+                        'extractor_args': {
+                            'youtube': {
+                                'player_client': ['android', 'web'],
+                            }
+                        },
                         'http_headers': {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                            'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:120.0) Gecko/120.0 Firefox/120.0',
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                             'Accept-Language': 'en-US,en;q=0.5',
                         }
                     }
@@ -194,7 +199,6 @@ with col_right:
                     status_text.text("Ingesting local binary audio channels from memory matrix...")
                     progress_bar.progress(25)
                     
-                    # Direct generation of target audio parameters from the uploaded object
                     with open(f"{output_filename}.mp3", "wb") as f:
                         f.write(uploaded_file.getbuffer())
                 
@@ -207,7 +211,7 @@ with col_right:
                 demo_text_translations = {
                     "en": "Welcome back. This is an advanced artificial intelligence voice automated tracking manifest deployed live on the cloud network layout architecture.",
                     "fr": "Bienvenue à nouveau. Il s'agit d'un manifeste de suivi automatisé par la voix de l'intelligence artificielle avancée déployé en direct sur l'architecture du réseau cloud.",
-                    "es": "Bienvenido de nuevo. Este es un manifiesto de seguimiento automatizado por voz de inteligencia artificial avanzada implementado en vivo en la arquitectura de la red de la nube."
+                    "es": "Bienvenido de nuevo. Este es un manifiesto de seguimiento automatisado por voz de inteligencia artificial avanzada implementado en vivo en la arquitectura de la red de la nube."
                 }
                 translated_text_string = demo_text_translations.get(lang_code, "Translation matrix block failure.")
                 st.toast("Linguistic nodes synchronized.")
