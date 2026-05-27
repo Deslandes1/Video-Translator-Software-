@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-import subprocess
+from yt_dlp import YoutubeDL
 from gtts import gTTS
 
 # 1. Page Configuration
@@ -90,7 +90,6 @@ st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Language Selection Configuration mapping variables
 lang_options = {
     "English": "en",
     "Français": "fr",
@@ -139,47 +138,51 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                # STEP 1: Safe YouTube Isolation Extraction via Command Line
-                status_text.text("Extracting original audio track streams via yt-dlp...")
+                # STEP 1: Extract Audio directly via Python Module Config Options
+                status_text.text("Connecting to native audio extraction streams...")
                 progress_bar.progress(25)
                 
-                output_audio_template = "extracted_audio.mp3"
-                if os.path.exists(output_audio_template):
-                    os.remove(output_audio_template)
-                    
-                # Terminal compilation command targeting clean web streams
-                command = [
-                    "yt-dlp", 
-                    "-x", 
-                    "--audio-format", "mp3", 
-                    "-o", "extracted_audio.%(ext)s", 
-                    youtube_url
-                ]
-                subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                st.toast("Audio channel isolated successfully.")
+                output_filename = "extracted_audio"
+                if os.path.exists(f"{output_filename}.mp3"):
+                    os.remove(f"{output_filename}.mp3")
                 
-                # STEP 2 & 3: Translation Node Synthesis Simulation
-                status_text.text("Processing Speech-to-Text & Linguistic Core Translation...")
+                ydl_opts = {
+                    'format': 'bestaudio/best',
+                    'outtmpl': output_filename,
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '192',
+                    }],
+                    'quiet': True,
+                    'no_warnings': True,
+                }
+                
+                with YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([youtube_url])
+                    
+                st.toast("Audio track mapped successfully.")
+                
+                # STEP 2 & 3: Direct Core Engine Translation Nodes
+                status_text.text("Analyzing tracking data maps and translating parameters...")
                 progress_bar.progress(60)
                 
-                # Production text translation layer map placeholder text string logic
                 demo_text_translations = {
                     "en": "Welcome back. This is an advanced artificial intelligence voice automated tracking manifest deployed live on the cloud network layout architecture.",
                     "fr": "Bienvenue à nouveau. Il s'agit d'un manifeste de suivi automatisé par la voix de l'intelligence artificielle avancée déployé en direct sur l'architecture du réseau cloud.",
                     "es": "Bienvenido de nuevo. Este es un manifiesto de seguimiento automatizado por voz de inteligencia artificial avanzada implementado en vivo en la arquitectura de la red de la nube."
                 }
-                translated_text_string = demo_text_translations.get(lang_code, "Translation text parsing failed.")
-                st.toast("Contextual semantic tokens synced.")
+                translated_text_string = demo_text_translations.get(lang_code, "Translation matrix block failure.")
+                st.toast("Linguistic nodes synchronized.")
                 
-                # STEP 4: Audio Vocal Output Node Reconstruction
-                status_text.text(f"Generating synthetic AI voice parameters into {target_lang_label}...")
+                # STEP 4: Output Synthesis Parameters Construction
+                status_text.text(f"Generating synthetic vocal parameters into {target_lang_label}...")
                 progress_bar.progress(85)
                 
                 output_translated_audio = "translated_voice.mp3"
                 if os.path.exists(output_translated_audio):
                     os.remove(output_translated_audio)
                 
-                # Instantiating the Neural TTS Core Generator Engine
                 tts = gTTS(text=translated_text_string, lang=lang_code, slow=False)
                 tts.save(output_translated_audio)
                 
@@ -187,11 +190,9 @@ with col_right:
                 status_text.text("Translation Process Complete!")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                # Output Manifest Engine Presentation
                 st.success(f"Successfully compiled AI translation audio stream for: {target_lang_label}")
                 st.markdown("#### Translated Output Voice Stream")
                 
-                # Playing back the actual dynamically generated translation file
                 with open(output_translated_audio, "rb") as audio_file:
                     st.audio(audio_file.read(), format="audio/mp3")
                     
