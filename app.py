@@ -231,8 +231,9 @@ with col_right:
                 - Return ONLY the final polished text. Do not include introductions, explanations, or quotes.
                 """
                 
+                # CRITICAL UPDATE: Utilizing the active supported llama-3.1-8b-instant model architecture
                 localization_response = client.chat.completions.create(
-                    model="llama3-8b-8192",
+                    model="llama-3.1-8b-instant",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": base_text}
