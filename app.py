@@ -92,8 +92,8 @@ st.sidebar.markdown("---")
 
 # Strict Premium True-Native Male Voice Matrix Map
 voice_options = {
-    "Español (Native Spanish Male - Alvaro)": "es-ES-AlvaroNeural",
     "Français (Native French Male - Henri)": "fr-FR-HenriNeural",
+    "Español (Native Spanish Male - Alvaro)": "es-ES-AlvaroNeural",
     "English (Native US Male - Christopher)": "en-US-ChristopherNeural"
 }
 selected_voice_label = st.sidebar.selectbox("Select Native Overdub Language Layer", list(voice_options.keys()))
@@ -200,44 +200,48 @@ with col_right:
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
                 # STEP 4: Groq Cloud Whisper API Translation Routing
-                status_text.text("AI Engine reading and translating language tracks...")
+                status_text.text("AI Engine reading language tracks...")
                 progress_bar.progress(50)
                 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 
                 with open("extracted_audio.mp3", "rb") as audio_file:
-                    if "es-ES" in voice_code:
-                        # Force translation directly to clean native Spanish text array
-                        translation_data = client.audio.translations.create(
-                            file=("extracted_audio.mp3", audio_file.read()),
-                            model="whisper-large-v3",
-                            response_format="text"
-                        )
-                        # Explicit routing parameter initialization
-                        audio_file.seek(0)
-                        translation_data = client.audio.transcriptions.create(
-                            file=("extracted_audio.mp3", audio_file.read()),
-                            model="whisper-large-v3",
-                            language="es",
-                            response_format="text"
-                        )
-                    elif "fr-FR" in voice_code:
-                        # Direct clean French transcription execution routing
-                        translation_data = client.audio.transcriptions.create(
-                            file=("extracted_audio.mp3", audio_file.read()),
-                            model="whisper-large-v3",
-                            language="fr",
-                            response_format="text"
-                        )
-                    else:
-                        translation_data = client.audio.translations.create(
-                            file=("extracted_audio.mp3", audio_file.read()),
-                            model="whisper-large-v3",
-                            response_format="text"
-                        )
+                    raw_translation = client.audio.translations.create(
+                        file=("extracted_audio.mp3", audio_file.read()),
+                        model="whisper-large-v3",
+                        response_format="text"
+                    )
                 
-                detected_text = str(translation_data).strip()
-                st.info(f"AI Transcription Result Map: \"{detected_text}\"")
+                base_text = str(raw_translation).strip()
+                
+                # STEP 4b: Cognitive Native Localization Engine Layer
+                status_text.text("Refining text into true, natural native speaker phrasing...")
+                
+                target_lang_instruction = "natural, idiomatic, flowing French as spoken by a native Parisian male speaker" if "fr-FR" in voice_code else "natural, idiomatic, flowing Spanish as spoken by a native male speaker"
+                if "en-US" in voice_code:
+                    target_lang_instruction = "natural, idiomatic conversational US English"
+
+                system_prompt = f"""
+                You are an expert voiceover localizer. Your job is to take raw, literal text translations and rewrite them into fluid, high-impact verbal prose.
+                Target Style: Rewrite the text into {target_lang_instruction}.
+                Rules:
+                - Maintain the exact original core meaning.
+                - Eliminate stiff textbook grammar, literal translations, and awkward structures.
+                - Optimize for spoken vocal delivery (make it sound smooth when read aloud).
+                - Return ONLY the final polished text. Do not include introductions, explanations, or quotes.
+                """
+                
+                localization_response = client.chat.completions.create(
+                    model="llama3-8b-8192",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": base_text}
+                    ],
+                    temperature=0.3
+                )
+                
+                detected_text = localization_response.choices[0].message.content.strip()
+                st.info(f"Polished Native Expression Map: \"{detected_text}\"")
                 
                 # STEP 5: Generate True Native Male Speech Output
                 status_text.text("Synthesizing true native male voice frequencies...")
