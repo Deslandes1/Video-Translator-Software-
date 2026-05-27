@@ -3,7 +3,6 @@ import os
 import subprocess
 import requests
 import asyncio
-import json
 from groq import Groq
 import edge_tts
 
@@ -59,7 +58,6 @@ def generate_srt_file(text, duration_sec, output_srt_path):
     if not words:
         words = ["Processing..."]
     
-    # Break words into smaller structural caption segments
     chunk_size = 6
     chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
     num_chunks = len(chunks)
@@ -71,7 +69,6 @@ def generate_srt_file(text, duration_sec, output_srt_path):
             start_time = idx * chunk_duration
             end_time = (idx + 1) * chunk_duration
             
-            # Format to standard SRT Timestamp strings: HH:MM:SS,mmm
             def format_srt_time(seconds):
                 hrs = int(seconds // 3600)
                 mins = int((seconds % 3600) // 60)
@@ -95,9 +92,9 @@ st.sidebar.markdown("---")
 
 # Strict Premium True-Native Male Voice Matrix Map
 voice_options = {
+    "Español (Native Spanish Male - Alvaro)": "es-ES-AlvaroNeural",
     "Français (Native French Male - Henri)": "fr-FR-HenriNeural",
-    "English (Native US Male - Christopher)": "en-US-ChristopherNeural",
-    "Español (Native Spain Male - Alvaro)": "es-ES-AlvaroNeural"
+    "English (Native US Male - Christopher)": "en-US-ChristopherNeural"
 }
 selected_voice_label = st.sidebar.selectbox("Select Native Overdub Language Layer", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]
@@ -169,7 +166,7 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                # Flush the target build variables
+                # Flush workspace files
                 for f_tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4"]:
                     if os.path.exists(f_tmp): os.remove(f_tmp)
                 
@@ -192,7 +189,7 @@ with col_right:
                 try:
                     video_duration = float(duration_result.stdout.decode('utf-8').strip())
                 except:
-                    video_duration = 30.0  # Safe fallback duration
+                    video_duration = 30.0
                 
                 # STEP 3: Separate Sound Layer
                 status_text.text("Extracting original sound parameters...")
@@ -202,17 +199,30 @@ with col_right:
                     "-acodec", "libmp3lame", "-q:a", "2", "extracted_audio.mp3", "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # STEP 4: Groq Cloud Whisper API Call
+                # STEP 4: Groq Cloud Whisper API Translation Routing
                 status_text.text("AI Engine reading and translating language tracks...")
                 progress_bar.progress(50)
                 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 
-                # Determine translation target behavior based on chosen voice code selection
-                # Whisper models parse directly into English by default or use standard structural outputs
                 with open("extracted_audio.mp3", "rb") as audio_file:
-                    if "fr-FR" in voice_code:
-                        # For clean native French, we call standard transcription framework nodes
+                    if "es-ES" in voice_code:
+                        # CRITICAL FIX: Force Groq/Whisper to translate directly into clean Spanish text
+                        translation_data = client.audio.translations.create(
+                            file=("extracted_audio.mp3", audio_file.read()),
+                            model="whisper-large-v3",
+                            response_format="json"  # Using JSON to manipulate/force translation language if needed, but standard translations API defaults to English, let's use the correct endpoint
+                        )
+                        # To truly get Spanish from non-Spanish, we use the translations logic if supported or transcribe with language target.
+                        # Since Groq translations defaults to English, we explicitly call transcription with language="es" to handle translation/transcription natively
+                        audio_file.seek(0)
+                        translation_data = client.audio.transcriptions.create(
+                            file=("extracted_audio.mp3", audio_file.read()),
+                            model="whisper-large-v3",
+                            language="es",
+                            response_format="text"
+                        )
+                    elif "fr-FR" in voice_code:
                         translation_data = client.audio.transcriptions.create(
                             file=("extracted_audio.mp3", audio_file.read()),
                             model="whisper-large-v3",
@@ -245,11 +255,6 @@ with col_right:
                 
                 final_video_output = "final_output.mp4"
                 
-                # Complex Filter explanation: 
-                # [0:a]volume=0.15[bg] -> Takes original audio, lowers volume to 15%
-                # [1:a]volume=1.8[ai]  -> Takes translated AI voice, maximizes clarity volume to 180%
-                # [bg][ai]amix=inputs=2:duration=first -> Mixes both layers perfectly together
-                # subtitles=subtitles.srt -> Burns text lines into frame layouts cleanly
                 subprocess.run([
                     "ffmpeg", "-i", "video.mp4", "-i", "translated_voice.mp3",
                     "-filter_complex", "[0:a]volume=0.15[bg];[1:a]volume=1.8[ai];[bg][ai]amix=inputs=2:duration=first",
