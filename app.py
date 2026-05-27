@@ -3,6 +3,7 @@ import os
 import subprocess
 import requests
 import asyncio
+import json
 from groq import Groq
 import edge_tts
 
@@ -13,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 2. Premium Design Framing Ingestion
+# 2. Premium Styling Ingestion
 st.markdown(
     """
     <style>
@@ -47,10 +48,44 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 3. Async Wrapper for Premium Male Voice Generation
+# 3. Async Helper for True Native Male Voices
 async def generate_male_voice(text, output_path, voice_name):
     communicate = edge_tts.Communicate(text, voice_name)
     await communicate.save(output_path)
+
+# Helper to break flat text down into artificial SRT timelines to span across video length
+def generate_srt_file(text, duration_sec, output_srt_path):
+    words = text.split()
+    if not words:
+        words = ["Processing..."]
+    
+    # Break words into smaller structural caption segments
+    chunk_size = 6
+    chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
+    num_chunks = len(chunks)
+    
+    chunk_duration = duration_sec / max(1, num_chunks)
+    
+    with open(output_srt_path, "w", encoding="utf-8") as f:
+        for idx, chunk in enumerate(chunks):
+            start_time = idx * chunk_duration
+            end_time = (idx + 1) * chunk_duration
+            
+            # Format to standard SRT Timestamp strings: HH:MM:SS,mmm
+            def format_srt_time(seconds):
+                hrs = int(seconds // 3600)
+                mins = int((seconds % 3600) // 60)
+                secs = int(seconds % 60)
+                mils = int((seconds % 1) * 1000)
+                return f"{hrs:02d}:{mins:02d}:{secs:02d},{mils:03d}"
+            
+            srt_start = format_srt_time(start_time)
+            srt_end = format_srt_time(end_time)
+            caption_text = " ".join(chunk)
+            
+            f.write(f"{idx + 1}\n")
+            f.write(f"{srt_start} --> {srt_end}\n")
+            f.write(f"{caption_text}\n\n")
 
 # 4. Sidebar Branding Architecture
 st.sidebar.markdown("## GlobalInternet.py")
@@ -58,14 +93,13 @@ st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Premium Male AI Voices Matrix (Free Edge Neural Engine)
+# Strict Premium True-Native Male Voice Matrix Map
 voice_options = {
-    "Male (English - Christopher)": "en-US-ChristopherNeural",
-    "Male (English - Eric)": "en-US-EricNeural",
-    "Male (Français - Henri)": "fr-FR-HenriNeural",
-    "Male (Español - Alvaro)": "es-ES-AlvaroNeural"
+    "Français (Native French Male - Henri)": "fr-FR-HenriNeural",
+    "English (Native US Male - Christopher)": "en-US-ChristopherNeural",
+    "Español (Native Spain Male - Alvaro)": "es-ES-AlvaroNeural"
 }
-selected_voice_label = st.sidebar.selectbox("Select Male AI Voice Layer", list(voice_options.keys()))
+selected_voice_label = st.sidebar.selectbox("Select Native Overdub Language Layer", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]
 
 st.title("AI Video Voice Translation Engine")
@@ -109,7 +143,7 @@ with col_left:
                 if file_id: download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
             
             try: st.video(raw_url)
-            except Exception: st.info("Link armed for background sync execution.")
+            except Exception: st.info("Link armed for mixed-audio background operations.")
     else:
         uploaded_file = st.file_uploader("Choose a video file:", type=["mp4", "mov", "mkv"])
         if uploaded_file is not None:
@@ -121,11 +155,11 @@ with col_right:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("<h4>Neural Pipeline Controls</h4>", unsafe_allow_html=True)
     
-    process_btn = st.button("Execute Video & Voice Sync Overdub")
+    process_btn = st.button("Execute Voice Sync Overdub & Captions")
     
     if process_btn:
         if not video_ready:
-            st.error("Error: Input video missing.")
+            st.error("Error: Input file target path missing.")
         elif "GROQ_API_KEY" not in st.secrets:
             st.error("Missing Integration Token: Place your 'GROQ_API_KEY' inside the Secrets drawer.")
         else:
@@ -135,76 +169,105 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                # Flush the clean build workspace
-                for f_tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "final_output.mp4"]:
+                # Flush the target build variables
+                for f_tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4"]:
                     if os.path.exists(f_tmp): os.remove(f_tmp)
                 
-                # STEP 1: Fetch Target Asset
+                # STEP 1: Download / Stream Video Content
                 if is_link:
-                    status_text.text("Streaming original raw video files from storage network...")
-                    progress_bar.progress(20)
+                    status_text.text("Streaming original file bytes matrix from cloud path...")
+                    progress_bar.progress(15)
                     response = requests.get(download_url, stream=True)
                     response.raise_for_status()
                     with open("video.mp4", "wb") as f:
                         for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
                 else:
-                    status_text.text("Ingesting original local file configurations...")
-                    progress_bar.progress(20)
+                    status_text.text("Ingesting video data layers...")
+                    progress_bar.progress(15)
                     with open("video.mp4", "wb") as f: f.write(uploaded_file.getbuffer())
                 
-                # STEP 2: Separate Audio Tracking Layer
-                status_text.text("Isolating video sound maps for AI compilation...")
+                # STEP 2: Read Total Video Duration Parameter using ffprobe
+                duration_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", "video.mp4"]
+                duration_result = subprocess.run(duration_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                try:
+                    video_duration = float(duration_result.stdout.decode('utf-8').strip())
+                except:
+                    video_duration = 30.0  # Safe fallback duration
+                
+                # STEP 3: Separate Sound Layer
+                status_text.text("Extracting original sound parameters...")
+                progress_bar.progress(30)
                 subprocess.run([
                     "ffmpeg", "-i", "video.mp4", "-vn", 
                     "-acodec", "libmp3lame", "-q:a", "2", "extracted_audio.mp3", "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # STEP 3: Groq Cloud Whisper Audio Processing Layer
-                status_text.text("Connecting to Cloud Whisper AI Transcription Array...")
+                # STEP 4: Groq Cloud Whisper API Call
+                status_text.text("AI Engine reading and translating language tracks...")
                 progress_bar.progress(50)
                 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+                
+                # Determine translation target behavior based on chosen voice code selection
+                # Whisper models parse directly into English by default or use standard structural outputs
                 with open("extracted_audio.mp3", "rb") as audio_file:
-                    translation_data = client.audio.translations.create(
-                        file=("extracted_audio.mp3", audio_file.read()),
-                        model="whisper-large-v3",
-                        response_format="text"
-                    )
+                    if "fr-FR" in voice_code:
+                        # For clean native French, we call standard transcription framework nodes
+                        translation_data = client.audio.transcriptions.create(
+                            file=("extracted_audio.mp3", audio_file.read()),
+                            model="whisper-large-v3",
+                            language="fr",
+                            response_format="text"
+                        )
+                    else:
+                        translation_data = client.audio.translations.create(
+                            file=("extracted_audio.mp3", audio_file.read()),
+                            model="whisper-large-v3",
+                            response_format="text"
+                        )
                 
                 detected_text = str(translation_data).strip()
-                st.info(f"AI Transcription Result: \"{detected_text}\"")
+                st.info(f"AI Transcription Result Map: \"{detected_text}\"")
                 
-                # STEP 4: Generate Premium Male AI Voice
-                status_text.text("Synthesizing voice tracks using Premium Male AI Vocal Node...")
-                progress_bar.progress(75)
-                
+                # STEP 5: Generate True Native Male Speech Output
+                status_text.text("Synthesizing true native male voice frequencies...")
+                progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
-                # Call Microsoft Edge Engine inside async loop
                 asyncio.run(generate_male_voice(detected_text, output_audio, voice_code))
                 
-                # STEP 5: Stitch New Audio Over Original Video Frame Pipeline Matrix
-                status_text.text("Merging the new male AI translation over the video layout frame...")
-                progress_bar.progress(90)
+                # STEP 6: Write Synchronized Captions Track
+                status_text.text("Compiling text caption tracks to match video pacing...")
+                generate_srt_file(detected_text, video_duration, "subtitles.srt")
+                
+                # STEP 7: Multiplex Sound Overlays and Burn Captions via Advanced FFmpeg Audio Graph Filters
+                status_text.text("Mixing audio layers (Background + AI Overdub) and burning captions...")
+                progress_bar.progress(85)
                 
                 final_video_output = "final_output.mp4"
+                
+                # Complex Filter explanation: 
+                # [0:a]volume=0.15[bg] -> Takes original audio, lowers volume to 15%
+                # [1:a]volume=1.8[ai]  -> Takes translated AI voice, maximizes clarity volume to 180%
+                # [bg][ai]amix=inputs=2:duration=first -> Mixes both layers perfectly together
+                # subtitles=subtitles.srt -> Burns text lines into frame layouts cleanly
                 subprocess.run([
                     "ffmpeg", "-i", "video.mp4", "-i", "translated_voice.mp3",
-                    "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac",
-                    "-shortest", final_video_output, "-y"
+                    "-filter_complex", "[0:a]volume=0.15[bg];[1:a]volume=1.8[ai];[bg][ai]amix=inputs=2:duration=first",
+                    "-vf", "subtitles=subtitles.srt", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-shortest", final_video_output, "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # Clean workspace temporary variables
-                for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3"]:
+                # Cleanup workspace nodes safely
+                for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt"]:
                     if os.path.exists(f_cleanup): os.remove(f_cleanup)
                 
                 progress_bar.progress(100)
-                status_text.text("All Operations Complete! Final Build Rendered Successfully.")
+                status_text.text("All Systems Harmonized! Video Production Compiled.")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                st.success("Successfully Compiled Synchronized AI Video Translation Engine Output:")
-                st.markdown("#### Translated Synchronized Output Media Player")
+                st.success("Successfully Compiled Combined Studio Output Layer:")
+                st.markdown("#### Translated Media Output Box")
                 
-                # Render the final combined video track file directly on screen
                 with open(final_video_output, "rb") as f:
                     st.video(f.read(), format="video/mp4")
                     
@@ -215,6 +278,7 @@ with col_right:
                 st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
+# 5. Architecture Global Footer
 st.markdown(
     """
     <div class="footer-white-right">
