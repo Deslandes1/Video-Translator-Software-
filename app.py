@@ -113,23 +113,48 @@ with col_left:
     
     input_method = st.radio(
         "Select Input Source Layer:",
-        ["Upload Video from this Computer (.MP4)", "Paste Video Link (Vimeo, Streamable, Direct MP4 URL)"]
+        ["Upload Video from this Computer (.MP4)", "Paste Video Link (Vimeo, Streamable, Google Drive, Direct MP4 URL)"]
     )
     
     video_ready = False
     is_link = False
     embed_url = ""
+    download_url = ""
     uploaded_file = None
     
-    if input_method == "Paste Video Link (Vimeo, Streamable, Direct MP4 URL)":
+    if input_method == "Paste Video Link (Vimeo, Streamable, Google Drive, Direct MP4 URL)":
         is_link = True
-        embed_url = st.text_input(
-            "Paste Video Link:", 
-            placeholder="https://vimeo.com/... or https://streamable.com/..."
-        )
-        if embed_url:
-            st.video(embed_url)
-            video_ready = True
+        raw_url = st.text_input(
+            "Paste Video Link Here:", 
+            placeholder="https://vimeo.com/... or Google Drive link"
+        ).strip()
+        
+        if raw_url:
+            embed_url = raw_url
+            download_url = raw_url
+            
+            # AUTOMATIC GOOGLE DRIVE PROCESSING LAYER
+            if "drive.google.com" in raw_url:
+                # Isolate File ID
+                file_id = ""
+                if "/file/d/" in raw_url:
+                    file_id = raw_url.split("/file/d/")[1].split("/")[0].split("?")[0]
+                elif "id=" in raw_url:
+                    file_id = raw_url.split("id=")[1].split("&")[0]
+                
+                if file_id:
+                    # Keep the clean view link for the UI player element to prevent MediaFileStorageError
+                    embed_url = f"https://drive.google.com/file/d/{file_id}/view"
+                    # Send the raw download link to yt-dlp backend engine nodes
+                    download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+            
+            # Render video interface container safely
+            try:
+                st.video(embed_url)
+                video_ready = True
+            except Exception as player_error:
+                st.warning("Video preview link loaded. System processing nodes ready.")
+                video_ready = True
             
     else:
         uploaded_file = st.file_uploader(
@@ -164,9 +189,9 @@ with col_right:
                 if os.path.exists(f"{output_filename}.mp3"):
                     os.remove(f"{output_filename}.mp3")
                 
-                # ROUTE A: Handle processing for external open platform streams
+                # ROUTE A: Process video links safely using the backend download URL
                 if is_link:
-                    status_text.text("Connecting to open platform audio stream nodes...")
+                    status_text.text("Connecting to cloud audio stream nodes...")
                     progress_bar.progress(25)
                     
                     ydl_opts = {
@@ -181,9 +206,9 @@ with col_right:
                         'no_warnings': True,
                     }
                     with YoutubeDL(ydl_opts) as ydl:
-                        ydl.download([embed_url])
+                        ydl.download([download_url])
                 
-                # ROUTE B: Handle data streaming for local system file uploads
+                # ROUTE B: Process local computer video uploads
                 else:
                     status_text.text("Ingesting local binary audio channels from memory matrix...")
                     progress_bar.progress(25)
@@ -193,7 +218,7 @@ with col_right:
                 
                 st.toast("Audio track mapped successfully.")
                 
-                # STEP 2 & 3: Direct Core Engine Translation Nodes
+                # STEP 2 & 3: Translation Matrix Blocks
                 status_text.text("Analyzing tracking data maps and translating parameters...")
                 progress_bar.progress(60)
                 
@@ -205,7 +230,7 @@ with col_right:
                 translated_text_string = demo_text_translations.get(lang_code, "Translation matrix block failure.")
                 st.toast("Linguistic nodes synchronized.")
                 
-                # STEP 4: Output Audio Parametric Overdub Compilation
+                # STEP 4: Output Synthesis Output
                 status_text.text(f"Generating synthetic vocal parameters into {target_lang_label}...")
                 progress_bar.progress(85)
                 
