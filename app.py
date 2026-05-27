@@ -113,22 +113,22 @@ with col_left:
     
     input_method = st.radio(
         "Select Input Source Layer:",
-        ["Upload Video from this Computer (.MP4)", "Paste YouTube Embed Link"]
+        ["Upload Video from this Computer (.MP4)", "Paste Video Link (Vimeo, Streamable, Direct MP4 URL)"]
     )
     
     video_ready = False
-    is_youtube = False
-    youtube_url = ""
+    is_link = False
+    embed_url = ""
     uploaded_file = None
     
-    if input_method == "Paste YouTube Embed Link":
-        is_youtube = True
-        youtube_url = st.text_input(
-            "Paste YouTube Video Link:", 
-            placeholder="https://www.youtube.com/watch?v=..."
+    if input_method == "Paste Video Link (Vimeo, Streamable, Direct MP4 URL)":
+        is_link = True
+        embed_url = st.text_input(
+            "Paste Video Link:", 
+            placeholder="https://vimeo.com/... or https://streamable.com/..."
         )
-        if youtube_url:
-            st.video(youtube_url)
+        if embed_url:
+            st.video(embed_url)
             video_ready = True
             
     else:
@@ -164,9 +164,9 @@ with col_right:
                 if os.path.exists(f"{output_filename}.mp3"):
                     os.remove(f"{output_filename}.mp3")
                 
-                # ROUTE A: Handle processing for external YouTube nodes with Hardened Mobile Client Bypasses
-                if is_youtube:
-                    status_text.text("Bypassing firewalls and connecting to streaming nodes...")
+                # ROUTE A: Handle processing for external open platform streams
+                if is_link:
+                    status_text.text("Connecting to open platform audio stream nodes...")
                     progress_bar.progress(25)
                     
                     ydl_opts = {
@@ -179,20 +179,9 @@ with col_right:
                         }],
                         'quiet': True,
                         'no_warnings': True,
-                        # High-level override args forcing YouTube to see request as an Android Client
-                        'extractor_args': {
-                            'youtube': {
-                                'player_client': ['android', 'web'],
-                            }
-                        },
-                        'http_headers': {
-                            'User-Agent': 'Mozilla/5.0 (Android 14; Mobile; rv:120.0) Gecko/120.0 Firefox/120.0',
-                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                            'Accept-Language': 'en-US,en;q=0.5',
-                        }
                     }
                     with YoutubeDL(ydl_opts) as ydl:
-                        ydl.download([youtube_url])
+                        ydl.download([embed_url])
                 
                 # ROUTE B: Handle data streaming for local system file uploads
                 else:
@@ -211,7 +200,7 @@ with col_right:
                 demo_text_translations = {
                     "en": "Welcome back. This is an advanced artificial intelligence voice automated tracking manifest deployed live on the cloud network layout architecture.",
                     "fr": "Bienvenue à nouveau. Il s'agit d'un manifeste de suivi automatisé par la voix de l'intelligence artificielle avancée déployé en direct sur l'architecture du réseau cloud.",
-                    "es": "Bienvenido de nuevo. Este es un manifiesto de seguimiento automatisado por voz de inteligencia artificial avanzada implementado en vivo en la arquitectura de la red de la nube."
+                    "es": "Bienvenido de nuevo. Este es un manifiesto de seguimiento automatizado por voz de inteligencia artificial avanzada implementado en vivo en la arquitectura de la red de la nube."
                 }
                 translated_text_string = demo_text_translations.get(lang_code, "Translation matrix block failure.")
                 st.toast("Linguistic nodes synchronized.")
