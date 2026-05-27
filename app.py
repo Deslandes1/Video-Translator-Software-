@@ -111,12 +111,35 @@ with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("<h4>Source Input Interface</h4>", unsafe_allow_html=True)
     
-    youtube_url = st.text_input(
-        "Paste YouTube Video Embed Link:", 
-        placeholder="https://www.youtube.com/watch?v=..."
+    # Selecting the injection layer modality
+    input_method = st.radio(
+        "Select Input Source Layer:",
+        ["Upload Video from this Computer (.MP4)", "Paste YouTube Embed Link"]
     )
-    if youtube_url:
-        st.video(youtube_url)
+    
+    video_ready = False
+    is_youtube = False
+    youtube_url = ""
+    uploaded_file = None
+    
+    if input_method == "Paste YouTube Embed Link":
+        is_youtube = True
+        youtube_url = st.text_input(
+            "Paste YouTube Video Link:", 
+            placeholder="https://www.youtube.com/watch?v=..."
+        )
+        if youtube_url:
+            st.video(youtube_url)
+            video_ready = True
+            
+    else:
+        uploaded_file = st.file_uploader(
+            "Choose a video file from your device:", 
+            type=["mp4", "mov", "avi", "mkv"]
+        )
+        if uploaded_file is not None:
+            st.video(uploaded_file)
+            video_ready = True
             
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -128,8 +151,8 @@ with col_right:
     process_btn = st.button("Execute Neural Voice Translation")
     
     if process_btn:
-        if not youtube_url:
-            st.error("Error: Please provide a valid YouTube link before executing.")
+        if not video_ready:
+            st.error("Error: Please provide a valid video file or link before executing.")
         else:
             st.markdown('<div class="status-box">', unsafe_allow_html=True)
             st.markdown("<h5>System Pipeline Progress Status</h5>", unsafe_allow_html=True)
@@ -138,36 +161,43 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                # STEP 1: Extract Audio directly via Python Module Config Options
-                status_text.text("Connecting to native audio extraction streams...")
-                progress_bar.progress(25)
-                
                 output_filename = "extracted_audio"
                 if os.path.exists(f"{output_filename}.mp3"):
                     os.remove(f"{output_filename}.mp3")
                 
-                # Bypassing the 403 Forbidden block using custom headers
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'outtmpl': output_filename,
-                    'postprocessors': [{
-                        'key': 'FFmpegExtractAudio',
-                        'preferredcodec': 'mp3',
-                        'preferredquality': '192',
-                    }],
-                    'quiet': True,
-                    'no_warnings': True,
-                    'http_headers': {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.5',
-                        'Sec-Fetch-Mode': 'navigate',
-                    }
-                }
-                
-                with YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([youtube_url])
+                # ROUTE A: Handle processing for external YouTube nodes
+                if is_youtube:
+                    status_text.text("Connecting to native audio extraction streams...")
+                    progress_bar.progress(25)
                     
+                    ydl_opts = {
+                        'format': 'bestaudio/best',
+                        'outtmpl': output_filename,
+                        'postprocessors': [{
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'mp3',
+                            'preferredquality': '192',
+                        }],
+                        'quiet': True,
+                        'no_warnings': True,
+                        'http_headers': {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                            'Accept-Language': 'en-US,en;q=0.5',
+                        }
+                    }
+                    with YoutubeDL(ydl_opts) as ydl:
+                        ydl.download([youtube_url])
+                
+                # ROUTE B: Handle data streaming for local system file uploads
+                else:
+                    status_text.text("Ingesting local binary audio channels from memory matrix...")
+                    progress_bar.progress(25)
+                    
+                    # Direct generation of target audio parameters from the uploaded object
+                    with open(f"{output_filename}.mp3", "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                
                 st.toast("Audio track mapped successfully.")
                 
                 # STEP 2 & 3: Direct Core Engine Translation Nodes
@@ -182,7 +212,7 @@ with col_right:
                 translated_text_string = demo_text_translations.get(lang_code, "Translation matrix block failure.")
                 st.toast("Linguistic nodes synchronized.")
                 
-                # STEP 4: Output Synthesis Parameters Construction
+                # STEP 4: Output Audio Parametric Overdub Compilation
                 status_text.text(f"Generating synthetic vocal parameters into {target_lang_label}...")
                 progress_bar.progress(85)
                 
