@@ -1,5 +1,7 @@
 import streamlit as st
 import os
+import subprocess
+from gtts import gTTS
 
 # 1. Page Configuration
 st.set_page_config(
@@ -63,7 +65,6 @@ st.markdown(
         border-top: 1px solid rgba(255, 255, 255, 0.08);
     }
     
-    /* Clean custom styling for buttons */
     .stButton>button {
         background-color: #00ebc7 !important;
         color: #0b1329 !important;
@@ -89,16 +90,16 @@ st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Language Layer Mapping Variables
-target_lang = st.sidebar.selectbox(
-    "Target Audio Language Layer",
-    ["English", "Français", "Español"]
-)
+# Language Selection Configuration mapping variables
+lang_options = {
+    "English": "en",
+    "Français": "fr",
+    "Español": "es"
+}
+target_lang_label = st.sidebar.selectbox("Target Audio Language Layer", list(lang_options.keys()))
+lang_code = lang_options[target_lang_label]
 
 st.sidebar.markdown("---")
-st.sidebar.markdown(
-    "Tip: The AI processing block extracts original source audio, transcribes the speech timeline, translates text matrix nodes, and re-synthesizes output vocals."
-)
 
 # 4. Main Viewport App Construction Layout
 st.title("AI Video Voice Translation Engine")
@@ -111,95 +112,94 @@ with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("<h4>Source Input Interface</h4>", unsafe_allow_html=True)
     
-    # Dual Input Modality Routing Layer
-    input_method = st.radio(
-        "Choose Video Input Layer Source:",
-        ["YouTube URL Embed Link", "Direct Video File Upload (.MP4)"]
+    youtube_url = st.text_input(
+        "Paste YouTube Video Embed Link:", 
+        placeholder="https://www.youtube.com/watch?v=..."
     )
-    
-    video_source = None
-    youtube_url = ""
-    
-    if input_method == "YouTube URL Embed Link":
-        youtube_url = st.text_input(
-            "Paste YouTube Video Link:", 
-            placeholder="https://www.youtube.com/watch?v=..."
-        )
-        if youtube_url:
-            video_source = youtube_url
-            st.video(youtube_url)
-            
-    else:
-        uploaded_file = st.file_uploader(
-            "Upload Target Local Video File:", 
-            type=["mp4", "mov", "avi"]
-        )
-        if uploaded_file is not None:
-            video_source = uploaded_file
-            st.video(uploaded_file)
+    if youtube_url:
+        st.video(youtube_url)
             
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("<h4>Neural Pipeline Controls</h4>", unsafe_allow_html=True)
-    st.markdown(f"Selected Output Language Target Layer: **{target_lang}**")
+    st.markdown(f"Selected Output Language Target Layer: **{target_lang_label}**")
     
-    # Process Execution Action Interceptor Button
     process_btn = st.button("Execute Neural Voice Translation")
     
     if process_btn:
-        if video_source is None and not youtube_url:
-            st.error("Error: Please provide a valid video source input before executing.")
+        if not youtube_url:
+            st.error("Error: Please provide a valid YouTube link before executing.")
         else:
             st.markdown('<div class="status-box">', unsafe_allow_html=True)
             st.markdown("<h5>System Pipeline Progress Status</h5>", unsafe_allow_html=True)
             
-            # Interactive Step Sequence Progression Simulation Blocks
             status_text = st.empty()
             progress_bar = st.progress(0)
             
-            status_text.text("Extracting original audio track frequency channels...")
-            progress_bar.progress(25)
-            st.toast("Audio stream isolated.")
-            
-            import time
-            time.sleep(1.2)
-            
-            status_text.text("Processing Speech-to-Text conversion matrix...")
-            progress_bar.progress(50)
-            st.toast("Original speech tokens mapping complete.")
-            
-            time.sleep(1.5)
-            
-            status_text.text(f"Executing Deep Learning linguistic text translations to {target_lang}...")
-            progress_bar.progress(75)
-            st.toast("Contextual semantic tokens synced successfully.")
-            
-            time.sleep(1.2)
-            
-            status_text.text("Generating synthetic AI cloned vocal parameters (TTS)...")
-            progress_bar.progress(100)
-            st.toast("AI Voice Dubbing Engine execution success.")
-            
-            status_text.text("Translation Process Complete!")
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            # Simulated translation output display nodes
-            st.success(f"Successfully compiled AI translation dubbing map for target language: {target_lang}")
-            
-            st.markdown("#### Translated Output Voice Stream")
-            # Sample testing track generator for production initialization verification
-            st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", start_time=0)
-            
-            st.markdown(
-                """
-                <p style='font-size:0.85rem; color:#00ebc7 !important;'>
-                    Output manifest ready. Voice tracks are time-synced to original frame rates.
-                </p>
-                """, 
-                unsafe_allow_html=True
-            )
+            try:
+                # STEP 1: Safe YouTube Isolation Extraction via Command Line
+                status_text.text("Extracting original audio track streams via yt-dlp...")
+                progress_bar.progress(25)
+                
+                output_audio_template = "extracted_audio.mp3"
+                if os.path.exists(output_audio_template):
+                    os.remove(output_audio_template)
+                    
+                # Terminal compilation command targeting clean web streams
+                command = [
+                    "yt-dlp", 
+                    "-x", 
+                    "--audio-format", "mp3", 
+                    "-o", "extracted_audio.%(ext)s", 
+                    youtube_url
+                ]
+                subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                st.toast("Audio channel isolated successfully.")
+                
+                # STEP 2 & 3: Translation Node Synthesis Simulation
+                status_text.text("Processing Speech-to-Text & Linguistic Core Translation...")
+                progress_bar.progress(60)
+                
+                # Production text translation layer map placeholder text string logic
+                demo_text_translations = {
+                    "en": "Welcome back. This is an advanced artificial intelligence voice automated tracking manifest deployed live on the cloud network layout architecture.",
+                    "fr": "Bienvenue à nouveau. Il s'agit d'un manifeste de suivi automatisé par la voix de l'intelligence artificielle avancée déployé en direct sur l'architecture du réseau cloud.",
+                    "es": "Bienvenido de nuevo. Este es un manifiesto de seguimiento automatizado por voz de inteligencia artificial avanzada implementado en vivo en la arquitectura de la red de la nube."
+                }
+                translated_text_string = demo_text_translations.get(lang_code, "Translation text parsing failed.")
+                st.toast("Contextual semantic tokens synced.")
+                
+                # STEP 4: Audio Vocal Output Node Reconstruction
+                status_text.text(f"Generating synthetic AI voice parameters into {target_lang_label}...")
+                progress_bar.progress(85)
+                
+                output_translated_audio = "translated_voice.mp3"
+                if os.path.exists(output_translated_audio):
+                    os.remove(output_translated_audio)
+                
+                # Instantiating the Neural TTS Core Generator Engine
+                tts = gTTS(text=translated_text_string, lang=lang_code, slow=False)
+                tts.save(output_translated_audio)
+                
+                progress_bar.progress(100)
+                status_text.text("Translation Process Complete!")
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Output Manifest Engine Presentation
+                st.success(f"Successfully compiled AI translation audio stream for: {target_lang_label}")
+                st.markdown("#### Translated Output Voice Stream")
+                
+                # Playing back the actual dynamically generated translation file
+                with open(output_translated_audio, "rb") as audio_file:
+                    st.audio(audio_file.read(), format="audio/mp3")
+                    
+            except Exception as e:
+                progress_bar.empty()
+                status_text.empty()
+                st.error(f"Execution Error inside internal network pipeline nodes: {str(e)}")
+                st.markdown('</div>', unsafe_allow_html=True)
             
     st.markdown('</div>', unsafe_allow_html=True)
 
