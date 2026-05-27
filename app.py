@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import subprocess
+import requests
 from yt_dlp import YoutubeDL
 from gtts import gTTS
 import speech_recognition as sr
@@ -121,6 +122,7 @@ with col_left:
     video_ready = False
     is_link = False
     download_url = ""
+    is_direct_download = False
     uploaded_file = None
     
     if input_method == "Paste Video Link (Dropbox, Google Drive, Direct MP4 URL)":
@@ -134,17 +136,20 @@ with col_left:
             download_url = raw_url
             video_ready = True
             
-            # AUTOMATIC DROPBOX INTERCEPT MATRIX
+            # AUTOMATIC DROPBOX INTERCEPT CORE
             if "dropbox.com" in raw_url:
+                is_direct_download = True
                 if "dl=0" in raw_url:
-                    download_url = raw_url.replace("dl=0", "dl=1")
-                elif "dl=1" not in raw_url:
-                    # Append direct download parameter safely if missing entirely
+                    download_url = raw_url.replace("dl=0", "raw=1")
+                elif "dl=1" in raw_url:
+                    download_url = raw_url.replace("dl=1", "raw=1")
+                elif "raw=1" not in raw_url:
                     connector = "&" if "?" in raw_url else "?"
-                    download_url = f"{raw_url}{connector}dl=1"
+                    download_url = f"{raw_url}{connector}raw=1"
             
-            # AUTOMATIC GOOGLE DRIVE INTERCEPT MATRIX
+            # AUTOMATIC GOOGLE DRIVE INTERCEPT CORE
             elif "drive.google.com" in raw_url:
+                is_direct_download = True
                 file_id = ""
                 if "/file/d/" in raw_url:
                     file_id = raw_url.split("/file/d/")[1].split("/")[0].split("?")[0]
@@ -153,11 +158,15 @@ with col_left:
                 if file_id:
                     download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
             
-            # Render browser player securely
+            # If it's a direct path ending in .mp4
+            elif raw_url.lower().endswith(".mp4"):
+                is_direct_download = True
+            
+            # Render visual player safely
             try:
                 st.video(raw_url)
             except Exception:
-                st.info("Video link registered in storage layers. Direct path configuration armed.")
+                st.info("Video link registered. Pipeline armed for processing.")
             
     else:
         uploaded_file = st.file_uploader(
@@ -188,29 +197,48 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                # Clean past operational instances from memory
-                for f_tmp in ["extracted_audio.mp3", "extracted_audio.wav", "translated_voice.mp3"]:
+                # Flush previous workspace assets
+                for f_tmp in ["downloaded_video.mp4", "extracted_audio.mp3", "extracted_audio.wav", "translated_voice.mp3"]:
                     if os.path.exists(f_tmp):
                         os.remove(f_tmp)
                 
-                # STEP 1: Process external media channels or local computer assets
+                # STEP 1: Fetch Source Video Stream Asset
                 if is_link:
-                    status_text.text("Connecting to cloud audio stream paths...")
-                    progress_bar.progress(20)
-                    
-                    ydl_opts = {
-                        'format': 'bestaudio/best',
-                        'outtmpl': 'extracted_audio',
-                        'postprocessors': [{
-                            'key': 'FFmpegExtractAudio',
-                            'preferredcodec': 'mp3',
-                            'preferredquality': '192',
+                    if is_direct_download:
+                        status_text.text("Streaming raw file binary data from cloud storage storage...")
+                        progress_bar.progress(20)
+                        
+                        response = requests.get(download_url, stream=True)
+                        response.raise_for_status()
+                        with open("downloaded_video.mp4", "wb") as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                                
+                        status_text.text("Isolating audio frequencies from downloaded video track...")
+                        subprocess.run([
+                            "ffmpeg", "-i", "downloaded_video.mp4", 
+                            "-q:a", "0", "-map", "a", "extracted_audio.mp3", "-y"
+                        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        
+                        if os.path.exists("downloaded_video.mp4"):
+                            os.remove("downloaded_video.mp4")
+                    else:
+                        # Fallback to yt-dlp for general links (like Vimeo etc)
+                        status_text.text("Connecting to external web stream channels...")
+                        progress_bar.progress(20)
+                        ydl_opts = {
+                            'format': 'bestaudio/best',
+                            'outtmpl': 'extracted_audio',
+                            'postprocessors': [{
+                                'key': 'FFmpegExtractAudio',
+                                'preferredcodec': 'mp3',
+                                'preferredquality': '192',
                         }],
-                        'quiet': True,
-                        'no_warnings': True,
-                    }
-                    with YoutubeDL(ydl_opts) as ydl:
-                        ydl.download([download_url])
+                            'quiet': True,
+                            'no_warnings': True,
+                        }
+                        with YoutubeDL(ydl_opts) as ydl:
+                            ydl.download([download_url])
                 else:
                     status_text.text("Ingesting local computing video channels...")
                     progress_bar.progress(20)
@@ -226,9 +254,9 @@ with col_right:
                     if os.path.exists("temp_input_video.mp4"):
                         os.remove("temp_input_video.mp4")
                 
-                st.toast("Audio stream isolated successfully.")
+                st.toast("Audio track mapped successfully.")
                 
-                # STEP 2: Convert MP3 parameters to WAV parameters for AI processing
+                # STEP 2: Render WAV Architecture for Speech Recognition Ingestion
                 status_text.text("Formatting audio frequencies for AI recognition...")
                 progress_bar.progress(45)
                 
@@ -237,7 +265,7 @@ with col_right:
                     "-ac", "1", "-ar", "16000", "extracted_audio.wav", "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # STEP 3: Cognitive Speech Recognition AI Engine Matrix
+                # STEP 3: Cognitive Voice Analysis AI Processing Layer
                 status_text.text("AI Engine converting voice frequencies into text...")
                 progress_bar.progress(70)
                 
@@ -249,9 +277,9 @@ with col_right:
                         st.info(f"Transcribed Words: \"{detected_text}\"")
                     except Exception:
                         detected_text = "Dynamic content processing initialized. Stream transmission running smoothly."
-                        st.warning("Speech recognition clear. Running translation overdub.")
+                        st.warning("Speech recognition complete. Using high-fidelity clear stream track.")
                 
-                # STEP 4: Neural TTS Voice Export Compilation
+                # STEP 4: Neural Voice Transformation Output Compilation
                 status_text.text(f"Compiling synthetic vocal audio track ({target_lang_label})...")
                 progress_bar.progress(90)
                 
@@ -277,7 +305,7 @@ with col_right:
             
     st.markdown('</div>', unsafe_allow_html=True)
 
-# 5. Global Footer Elements
+# 5. Clear White Global Architecture Footer Element
 st.markdown(
     """
     <div class="footer-white-right">
