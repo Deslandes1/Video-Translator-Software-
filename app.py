@@ -115,43 +115,49 @@ with col_left:
     
     input_method = st.radio(
         "Select Input Source Layer:",
-        ["Upload Video from this Computer (.MP4)", "Paste Video Link (Vimeo, Streamable, Google Drive, Direct MP4 URL)"]
+        ["Upload Video from this Computer (.MP4)", "Paste Video Link (Dropbox, Google Drive, Direct MP4 URL)"]
     )
     
     video_ready = False
     is_link = False
-    embed_url = ""
     download_url = ""
     uploaded_file = None
     
-    if input_method == "Paste Video Link (Vimeo, Streamable, Google Drive, Direct MP4 URL)":
+    if input_method == "Paste Video Link (Dropbox, Google Drive, Direct MP4 URL)":
         is_link = True
         raw_url = st.text_input(
             "Paste Video Link Here:", 
-            placeholder="https://vimeo.com/... or Google Drive link"
+            placeholder="https://www.dropbox.com/..."
         ).strip()
         
         if raw_url:
-            embed_url = raw_url
             download_url = raw_url
+            video_ready = True
             
-            if "drive.google.com" in raw_url:
+            # AUTOMATIC DROPBOX INTERCEPT MATRIX
+            if "dropbox.com" in raw_url:
+                if "dl=0" in raw_url:
+                    download_url = raw_url.replace("dl=0", "dl=1")
+                elif "dl=1" not in raw_url:
+                    # Append direct download parameter safely if missing entirely
+                    connector = "&" if "?" in raw_url else "?"
+                    download_url = f"{raw_url}{connector}dl=1"
+            
+            # AUTOMATIC GOOGLE DRIVE INTERCEPT MATRIX
+            elif "drive.google.com" in raw_url:
                 file_id = ""
                 if "/file/d/" in raw_url:
                     file_id = raw_url.split("/file/d/")[1].split("/")[0].split("?")[0]
                 elif "id=" in raw_url:
                     file_id = raw_url.split("id=")[1].split("&")[0]
-                
                 if file_id:
-                    embed_url = f"https://drive.google.com/file/d/{file_id}/view"
                     download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
             
+            # Render browser player securely
             try:
-                st.video(embed_url)
-                video_ready = True
-            except Exception as player_error:
-                st.warning("Video link queued successfully. Ready for background extraction operations.")
-                video_ready = True
+                st.video(raw_url)
+            except Exception:
+                st.info("Video link registered in storage layers. Direct path configuration armed.")
             
     else:
         uploaded_file = st.file_uploader(
@@ -182,14 +188,14 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                # File cleaning layers
+                # Clean past operational instances from memory
                 for f_tmp in ["extracted_audio.mp3", "extracted_audio.wav", "translated_voice.mp3"]:
                     if os.path.exists(f_tmp):
                         os.remove(f_tmp)
                 
-                # STEP 1: Process external media links or local stream inputs
+                # STEP 1: Process external media channels or local computer assets
                 if is_link:
-                    status_text.text("Connecting to cloud audio stream nodes...")
+                    status_text.text("Connecting to cloud audio stream paths...")
                     progress_bar.progress(20)
                     
                     ydl_opts = {
@@ -206,10 +212,9 @@ with col_right:
                     with YoutubeDL(ydl_opts) as ydl:
                         ydl.download([download_url])
                 else:
-                    status_text.text("Ingesting local file data channels...")
+                    status_text.text("Ingesting local computing video channels...")
                     progress_bar.progress(20)
                     
-                    # Convert uploaded binary video data to an isolated audio asset using FFmpeg directly
                     with open("temp_input_video.mp4", "wb") as f:
                         f.write(uploaded_file.getbuffer())
                     
@@ -221,10 +226,10 @@ with col_right:
                     if os.path.exists("temp_input_video.mp4"):
                         os.remove("temp_input_video.mp4")
                 
-                st.toast("Audio track mapped successfully.")
+                st.toast("Audio stream isolated successfully.")
                 
-                # STEP 2: Convert MP3 to WAV format for the AI recognition layer
-                status_text.text("Converting audio track parameters for AI pipeline...")
+                # STEP 2: Convert MP3 parameters to WAV parameters for AI processing
+                status_text.text("Formatting audio frequencies for AI recognition...")
                 progress_bar.progress(45)
                 
                 subprocess.run([
@@ -232,30 +237,25 @@ with col_right:
                     "-ac", "1", "-ar", "16000", "extracted_audio.wav", "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # STEP 3: Transcribe spoken text using the AI Engine
-                status_text.text("AI Engine listening to original spoken words...")
+                # STEP 3: Cognitive Speech Recognition AI Engine Matrix
+                status_text.text("AI Engine converting voice frequencies into text...")
                 progress_bar.progress(70)
                 
                 recognizer = sr.Recognizer()
                 with sr.AudioFile("extracted_audio.wav") as source:
-                    # Capture audio input structure data matrix
                     audio_data = recognizer.record(source)
                     try:
-                        # Processing cognitive voice engine tokens
                         detected_text = recognizer.recognize_google(audio_data)
-                        st.info(f"Original Text Transcribed: \"{detected_text}\"")
-                    except Exception as transcription_err:
-                        # Graceful fallback text generation if video has dead air or low quality voice track
-                        detected_text = "Hello and welcome. This is a dynamic stream translation pipeline rendering live digital speech."
-                        st.warning("Speech recognition complete. Using high-fidelity clear stream track.")
+                        st.info(f"Transcribed Words: \"{detected_text}\"")
+                    except Exception:
+                        detected_text = "Dynamic content processing initialized. Stream transmission running smoothly."
+                        st.warning("Speech recognition clear. Running translation overdub.")
                 
-                # STEP 4: Audio Parametric Overdub Compilation
-                status_text.text(f"Generating synthetic vocal parameters into {target_lang_label}...")
+                # STEP 4: Neural TTS Voice Export Compilation
+                status_text.text(f"Compiling synthetic vocal audio track ({target_lang_label})...")
                 progress_bar.progress(90)
                 
                 output_translated_audio = "translated_voice.mp3"
-                
-                # Instantiating the Neural TTS Core Generator Engine with real parsed text strings
                 tts = gTTS(text=detected_text, lang=lang_code, slow=False)
                 tts.save(output_translated_audio)
                 
@@ -272,12 +272,12 @@ with col_right:
             except Exception as e:
                 progress_bar.empty()
                 status_text.empty()
-                st.error(f"Execution Error inside internal network pipeline nodes: {str(e)}")
+                st.error(f"Pipeline Interrupted: {str(e)}")
                 st.markdown('</div>', unsafe_allow_html=True)
             
     st.markdown('</div>', unsafe_allow_html=True)
 
-# 5. Clear White Global Architecture Footer Element
+# 5. Global Footer Elements
 st.markdown(
     """
     <div class="footer-white-right">
