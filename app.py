@@ -52,7 +52,6 @@ async def generate_male_voice(text, output_path, voice_name, fallback_voice="fr-
     try:
         communicate = edge_tts.Communicate(text, voice_name)
         await communicate.save(output_path)
-        # Check if file is empty
         if os.path.getsize(output_path) == 0:
             raise Exception("Generated audio file is empty")
         return True
@@ -68,7 +67,7 @@ async def generate_male_voice(text, output_path, voice_name, fallback_voice="fr-
             st.error(f"Fallback voice also failed: {str(e2)}")
             return False
 
-# Helper to break flat text down into artificial SRT timelines to span across video length
+# Helper to break flat text into artificial SRT timelines
 def generate_srt_file(text, duration_sec, output_srt_path):
     words = text.split()
     if not words:
@@ -77,7 +76,6 @@ def generate_srt_file(text, duration_sec, output_srt_path):
     chunk_size = 6
     chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
     num_chunks = len(chunks)
-    
     chunk_duration = duration_sec / max(1, num_chunks)
     
     with open(output_srt_path, "w", encoding="utf-8") as f:
@@ -100,13 +98,12 @@ def generate_srt_file(text, duration_sec, output_srt_path):
             f.write(f"{srt_start} --> {srt_end}\n")
             f.write(f"{caption_text}\n\n")
 
-# 4. Sidebar Branding Architecture
+# 4. Sidebar
 st.sidebar.markdown("## GlobalInternet.py")
 st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Premium True-Native Voice Matrix Map (Haitian Creole included)
 voice_options = {
     "Français (Native French Male - Henri)": "fr-FR-HenriNeural",
     "Español (Native Spanish Male - Alvaro)": "es-ES-AlvaroNeural",
@@ -139,25 +136,23 @@ with col_left:
     if input_method == "Paste Video Link (Dropbox, Google Drive)":
         is_link = True
         raw_url = st.text_input("Paste Video Link Here:").strip()
-        
         if raw_url:
             download_url = raw_url
             video_ready = True
-            
             if "dropbox.com" in raw_url:
                 if "dl=0" in raw_url: download_url = raw_url.replace("dl=0", "raw=1")
                 elif "dl=1" in raw_url: download_url = raw_url.replace("dl=1", "raw=1")
                 elif "raw=1" not in raw_url:
                     download_url = f"{raw_url}&raw=1" if "?" in raw_url else f"{raw_url}?raw=1"
-            
             elif "drive.google.com" in raw_url:
                 file_id = ""
                 if "/file/d/" in raw_url: file_id = raw_url.split("/file/d/")[1].split("/")[0]
                 elif "id=" in raw_url: file_id = raw_url.split("id=")[1].split("&")[0]
                 if file_id: download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-            
-            try: st.video(raw_url)
-            except Exception: st.info("Link armed for mixed-audio background operations.")
+            try:
+                st.video(raw_url)
+            except Exception:
+                st.info("Link armed for mixed-audio background operations.")
     else:
         uploaded_file = st.file_uploader("Choose a video file:", type=["mp4", "mov", "mkv"])
         if uploaded_file is not None:
@@ -183,24 +178,26 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                # Flush workspace files
+                # Cleanup
                 for f_tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4"]:
                     if os.path.exists(f_tmp): os.remove(f_tmp)
                 
-                # STEP 1: Download / Stream Video Content
+                # STEP 1: Download video
                 if is_link:
-                    status_text.text("Streaming original file bytes matrix from cloud path...")
+                    status_text.text("Streaming original file...")
                     progress_bar.progress(15)
                     response = requests.get(download_url, stream=True)
                     response.raise_for_status()
                     with open("video.mp4", "wb") as f:
-                        for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
                 else:
-                    status_text.text("Ingesting video data layers...")
+                    status_text.text("Ingesting video data...")
                     progress_bar.progress(15)
-                    with open("video.mp4", "wb") as f: f.write(uploaded_file.getbuffer())
+                    with open("video.mp4", "wb") as f:
+                        f.write(uploaded_file.getbuffer())
                 
-                # STEP 2: Read Total Video Duration Parameter using ffprobe
+                # STEP 2: Get video duration
                 duration_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", "video.mp4"]
                 duration_result = subprocess.run(duration_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                 try:
@@ -208,33 +205,28 @@ with col_right:
                 except:
                     video_duration = 30.0
                 
-                # STEP 3: Separate Sound Layer
-                status_text.text("Extracting original sound parameters...")
+                # STEP 3: Extract audio
+                status_text.text("Extracting original audio...")
                 progress_bar.progress(30)
                 subprocess.run([
-                    "ffmpeg", "-i", "video.mp4", "-vn", 
+                    "ffmpeg", "-i", "video.mp4", "-vn",
                     "-acodec", "libmp3lame", "-q:a", "2", "extracted_audio.mp3", "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # STEP 4: Groq Cloud Whisper API Translation Routing
+                # STEP 4: Transcribe & translate with Groq
                 status_text.text("AI Engine reading language tracks...")
                 progress_bar.progress(50)
-                
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-                
                 with open("extracted_audio.mp3", "rb") as audio_file:
                     raw_translation = client.audio.translations.create(
                         file=("extracted_audio.mp3", audio_file.read()),
                         model="whisper-large-v3",
                         response_format="text"
                     )
-                
                 base_text = str(raw_translation).strip()
                 
-                # STEP 4b: Cognitive Native Localization Engine Layer
-                status_text.text("Refining text into true, natural native speaker phrasing...")
-                
-                # Determine target language instruction based on selected voice
+                # STEP 4b: Localization
+                status_text.text("Refining text into natural native phrasing...")
                 if "fr-FR" in voice_code:
                     target_lang_instruction = "natural, idiomatic, flowing French as spoken by a native Parisian male speaker"
                 elif "es-ES" in voice_code:
@@ -253,7 +245,6 @@ with col_right:
                 - Optimize for spoken vocal delivery (make it sound smooth when read aloud).
                 - Return ONLY the final polished text. Do not include introductions, explanations, or quotes.
                 """
-                
                 localization_response = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[
@@ -262,39 +253,34 @@ with col_right:
                     ],
                     temperature=0.3
                 )
-                
                 detected_text = localization_response.choices[0].message.content.strip()
                 st.info(f"Polished Native Expression Map: \"{detected_text}\"")
                 
-                # STEP 5: Generate True Native Speech Output (with fallback)
+                # STEP 5: TTS with fallback
                 status_text.text("Synthesizing true native voice frequencies...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
-                
-                # Define fallback voice based on language group
                 if "fr" in voice_code:
                     fallback_voice = "fr-FR-HenriNeural"
                 elif "es" in voice_code:
                     fallback_voice = "es-ES-AlvaroNeural"
                 elif "ht" in voice_code:
-                    fallback_voice = "fr-FR-HenriNeural"  # fallback to French if Haitian fails
+                    fallback_voice = "fr-FR-HenriNeural"
                 else:
                     fallback_voice = "en-US-ChristopherNeural"
                 
-                success = await generate_male_voice(detected_text, output_audio, voice_code, fallback_voice)
+                success = asyncio.run(generate_male_voice(detected_text, output_audio, voice_code, fallback_voice))
                 if not success:
                     raise Exception("TTS failed for both primary and fallback voices.")
                 
-                # STEP 6: Write Synchronized Captions Track
-                status_text.text("Compiling text caption tracks to match video pacing...")
+                # STEP 6: Generate captions
+                status_text.text("Compiling caption tracks...")
                 generate_srt_file(detected_text, video_duration, "subtitles.srt")
                 
-                # STEP 7: Multiplex Sound Overlays and Burn Captions
-                status_text.text("Mixing audio layers (Background + AI Overdub) and burning captions...")
+                # STEP 7: Mix audio & burn subtitles
+                status_text.text("Mixing audio layers and burning captions...")
                 progress_bar.progress(85)
-                
                 final_video_output = "final_output.mp4"
-                
                 subprocess.run([
                     "ffmpeg", "-i", "video.mp4", "-i", "translated_voice.mp3",
                     "-filter_complex", "[0:a]volume=0.15[bg];[1:a]volume=1.8[ai];[bg][ai]amix=inputs=2:duration=first",
@@ -302,7 +288,7 @@ with col_right:
                     "-c:a", "aac", "-shortest", final_video_output, "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # Cleanup workspace nodes safely (keep final video)
+                # Cleanup
                 for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt"]:
                     if os.path.exists(f_cleanup): os.remove(f_cleanup)
                 
@@ -313,7 +299,6 @@ with col_right:
                 st.success("Successfully Compiled Combined Studio Output Layer:")
                 st.markdown("#### Translated Media Output Box")
                 
-                # Display the final video
                 if os.path.exists(final_video_output) and os.path.getsize(final_video_output) > 0:
                     with open(final_video_output, "rb") as f:
                         st.video(f.read(), format="video/mp4")
@@ -327,7 +312,6 @@ with col_right:
                 st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# 5. Architecture Global Footer
 st.markdown(
     """
     <div class="footer-white-right">
