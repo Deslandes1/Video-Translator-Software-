@@ -4,19 +4,16 @@ import subprocess
 import requests
 import asyncio
 import re
-import sys
-import importlib
-
-# Ensure yt-dlp is installed (for YouTube/Dropbox/etc.)
-try:
-    import yt_dlp
-except ImportError:
-    st.info("Installing yt-dlp for video downloads...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "yt-dlp"])
-    import yt_dlp
-
 from groq import Groq
 import edge_tts
+
+# Try to import yt-dlp, but if missing, we'll only support direct downloads
+try:
+    import yt_dlp
+    YT_DLP_AVAILABLE = True
+except ImportError:
+    YT_DLP_AVAILABLE = False
+    st.warning("yt-dlp not installed. Only direct video links (raw MP4) will work. Install it via pip install yt-dlp for full support.")
 
 # ================== Page Config ==================
 st.set_page_config(
@@ -165,20 +162,9 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
 
 # ================== Download Video Function ==================
 def download_video(url, output_path):
-    """Download video using yt-dlp, returns True on success."""
-    try:
-        ydl_opts = {
-            'outtmpl': output_path,
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'quiet': True,
-            'no_warnings': True,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        return True
-    except Exception as e:
-        st.warning(f"yt-dlp failed: {e}")
-        # Try direct download for raw MP4 links
+    """Download video using yt-dlp if available, else direct download."""
+    # Try direct download first for raw MP4 links
+    if url.endswith('.mp4') or url.endswith('.mov') or url.endswith('.mkv'):
         try:
             r = requests.get(url, stream=True, timeout=30)
             r.raise_for_status()
@@ -186,9 +172,28 @@ def download_video(url, output_path):
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
             return True
-        except Exception as e2:
-            st.error(f"Direct download also failed: {e2}")
+        except Exception as e:
+            st.warning(f"Direct download failed: {e}")
+            # Fall through to yt-dlp if available
+    
+    # Use yt-dlp for YouTube, Vimeo, etc.
+    if YT_DLP_AVAILABLE:
+        try:
+            ydl_opts = {
+                'outtmpl': output_path,
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'quiet': True,
+                'no_warnings': True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            return True
+        except Exception as e:
+            st.error(f"yt-dlp failed: {e}")
             return False
+    else:
+        st.error("yt-dlp is not installed and direct download failed. Please install yt-dlp or use a direct MP4 link.")
+        return False
 
 # ================== Sidebar ==================
 st.sidebar.markdown("## GlobalInternet.py")
