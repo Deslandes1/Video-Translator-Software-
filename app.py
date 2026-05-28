@@ -47,7 +47,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 3. Async Helper for True Native Male Voices
+# 3. Async Helper for True Native Male Voices (now includes Haitian Creole)
 async def generate_male_voice(text, output_path, voice_name):
     communicate = edge_tts.Communicate(text, voice_name)
     await communicate.save(output_path)
@@ -90,11 +90,12 @@ st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Strict Premium True-Native Male Voice Matrix Map
+# Strict Premium True-Native Voice Matrix Map (UPDATED: added Haitian Creole)
 voice_options = {
     "Français (Native French Male - Henri)": "fr-FR-HenriNeural",
     "Español (Native Spanish Male - Alvaro)": "es-ES-AlvaroNeural",
-    "English (Native US Male - Christopher)": "en-US-ChristopherNeural"
+    "English (Native US Male - Christopher)": "en-US-ChristopherNeural",
+    "Kreyòl Ayisyen (Haitian Creole Native - Michelle)": "ht-HT-MichelleNeural"   # Added Haitian Creole voice
 }
 selected_voice_label = st.sidebar.selectbox("Select Native Overdub Language Layer", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]
@@ -214,11 +215,17 @@ with col_right:
                 
                 base_text = str(raw_translation).strip()
                 
-                # STEP 4b: Cognitive Native Localization Engine Layer
+                # STEP 4b: Cognitive Native Localization Engine Layer (UPDATED for Haitian Creole)
                 status_text.text("Refining text into true, natural native speaker phrasing...")
                 
-                target_lang_instruction = "natural, idiomatic, flowing French as spoken by a native Parisian male speaker" if "fr-FR" in voice_code else "natural, idiomatic, flowing Spanish as spoken by a native male speaker"
-                if "en-US" in voice_code:
+                # Determine target language instruction based on selected voice
+                if "fr-FR" in voice_code:
+                    target_lang_instruction = "natural, idiomatic, flowing French as spoken by a native Parisian male speaker"
+                elif "es-ES" in voice_code:
+                    target_lang_instruction = "natural, idiomatic, flowing Spanish as spoken by a native male speaker"
+                elif "ht-HT" in voice_code:   # Haitian Creole
+                    target_lang_instruction = "natural, idiomatic, flowing Haitian Creole (Kreyòl Ayisyen) as spoken by a native speaker"
+                else:  # English
                     target_lang_instruction = "natural, idiomatic conversational US English"
 
                 system_prompt = f"""
@@ -231,7 +238,6 @@ with col_right:
                 - Return ONLY the final polished text. Do not include introductions, explanations, or quotes.
                 """
                 
-                # CRITICAL UPDATE: Utilizing the active supported llama-3.1-8b-instant model architecture
                 localization_response = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[
@@ -244,8 +250,8 @@ with col_right:
                 detected_text = localization_response.choices[0].message.content.strip()
                 st.info(f"Polished Native Expression Map: \"{detected_text}\"")
                 
-                # STEP 5: Generate True Native Male Speech Output
-                status_text.text("Synthesizing true native male voice frequencies...")
+                # STEP 5: Generate True Native Speech Output (Haitian voice included)
+                status_text.text("Synthesizing true native voice frequencies...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
                 asyncio.run(generate_male_voice(detected_text, output_audio, voice_code))
