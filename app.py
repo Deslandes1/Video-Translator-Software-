@@ -7,7 +7,7 @@ import re
 from groq import Groq
 import edge_tts
 
-# Try to import yt-dlp, but if missing, we'll only support direct downloads
+# Try to import yt-dlp
 try:
     import yt_dlp
     YT_DLP_AVAILABLE = True
@@ -58,7 +58,6 @@ st.markdown(
 
 # ================== Helper Functions ==================
 def get_duration(file_path):
-    """Return duration in seconds using ffprobe."""
     if not os.path.exists(file_path):
         return 0.0
     cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
@@ -68,8 +67,49 @@ def get_duration(file_path):
     except:
         return 0.0
 
+def pad_audio_with_silence_reliable(input_audio, output_audio, target_duration):
+    """
+    Convert input audio to WAV, generate silence as WAV, concatenate.
+    Works with any input format (MP3, AAC, etc.) and never produces empty output.
+    """
+    current = get_duration(input_audio)
+    if current >= target_duration - 0.1:
+        subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return output_audio
+    
+    pad_duration = target_duration - current
+    temp_orig = "temp_orig.wav"
+    temp_silence = "temp_silence.wav"
+    
+    # Convert original to WAV (48kHz, stereo)
+    subprocess.run([
+        "ffmpeg", "-i", input_audio, "-ar", "48000", "-ac", "2", "-f", "wav", temp_orig, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    # Generate silence as WAV
+    subprocess.run([
+        "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
+        "-ar", "48000", "-ac", "2", "-f", "wav", temp_silence, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    # Concatenate
+    subprocess.run([
+        "ffmpeg", "-i", temp_orig, "-i", temp_silence,
+        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
+        "-c:a", "aac", "-b:a", "128k", output_audio, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    # Cleanup
+    for f in [temp_orig, temp_silence]:
+        if os.path.exists(f):
+            os.remove(f)
+    
+    if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
+        raise Exception("Padding produced empty file.")
+    return output_audio
+
 def extend_video_with_last_frame(original_video, output_video, target_duration):
-    """Extend video by freezing the last frame; also extends audio with silence."""
     orig_dur = get_duration(original_video)
     if orig_dur >= target_duration - 0.1:
         subprocess.run([
@@ -88,23 +128,7 @@ def extend_video_with_last_frame(original_video, output_video, target_duration):
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return output_video
 
-def speed_up_video(original_video, output_video, original_duration, target_duration):
-    """Speed up video (and audio) to fit target_duration."""
-    speed_factor = original_duration / target_duration
-    # Use setpts filter for video, atempo for audio
-    subprocess.run([
-        "ffmpeg", "-i", original_video,
-        "-filter_complex", 
-        f"[0:v]setpts={1/speed_factor}*PTS[v];[0:a]atempo={speed_factor}[a]",
-        "-map", "[v]", "-map", "[a]",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k",
-        "-y", output_video
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return output_video
-
 def generate_srt_file(text, duration_sec, output_srt_path):
-    """Create a simple SRT file that displays the entire text over the video."""
     words = text.split()
     if not words:
         words = ["Processing..."]
@@ -126,7 +150,6 @@ def generate_srt_file(text, duration_sec, output_srt_path):
             f.write(f"{idx+1}\n{fmt(start_time)} --> {fmt(end_time)}\n{' '.join(chunk)}\n\n")
 
 def clean_repetitions(text):
-    """Remove obvious repetitive loops."""
     words = text.split()
     if len(words) > 400:
         if words[-10:] and len(set(words[-10:])) < 2:
@@ -160,7 +183,6 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
 
 # ================== Download Video ==================
 def download_video(url, output_path):
-    """Download video using yt-dlp if available, else direct download."""
     if url.endswith('.mp4') or url.endswith('.mov') or url.endswith('.mkv'):
         try:
             r = requests.get(url, stream=True, timeout=30)
@@ -171,7 +193,6 @@ def download_video(url, output_path):
             return True
         except Exception as e:
             st.warning(f"Direct download failed: {e}")
-    
     if YT_DLP_AVAILABLE:
         try:
             ydl_opts = {
@@ -261,12 +282,12 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                # Cleanup old files
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "sped_up_video.mp4"]:
+                # Cleanup
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "temp_orig.wav", "temp_silence.wav"]:
                     if os.path.exists(f):
                         os.remove(f)
                 
-                # Step 1: Get video file
+                # Step 1: Get video
                 status.text("Downloading / reading video...")
                 progress_bar.progress(10)
                 if uploaded_file:
@@ -274,17 +295,16 @@ with col_right:
                         f.write(uploaded_file.getbuffer())
                 else:
                     if not download_video(download_url, "video.mp4"):
-                        raise Exception("Failed to download video. Please check the link or use a direct file upload.")
+                        raise Exception("Failed to download video.")
                 
                 if not os.path.exists("video.mp4") or os.path.getsize("video.mp4") == 0:
-                    raise Exception("Video file is empty or could not be saved.")
+                    raise Exception("Video file empty.")
                 
-                # Step 2: Get video duration
                 video_duration = get_duration("video.mp4")
                 if video_duration <= 0:
                     video_duration = 30.0
                 
-                # Step 3: Extract original audio for transcription
+                # Step 2: Extract audio
                 status.text("Extracting audio...")
                 progress_bar.progress(25)
                 subprocess.run([
@@ -292,10 +312,10 @@ with col_right:
                     "-acodec", "libmp3lame", "-q:a", "2", "extracted_audio.mp3", "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                if not os.path.exists("extracted_audio.mp3") or os.path.getsize("extracted_audio.mp3") == 0:
-                    raise Exception("Failed to extract audio from video.")
+                if not os.path.exists("extracted_audio.mp3"):
+                    raise Exception("Audio extraction failed.")
                 
-                # Step 4: Transcribe with Groq Whisper
+                # Step 3: Transcribe
                 status.text("Transcribing original audio...")
                 progress_bar.progress(40)
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -307,31 +327,28 @@ with col_right:
                     )
                 base_text = str(transcription).strip()
                 
-                # Step 5: Localize to target language
-                status.text("Localizing text to selected language...")
+                # Step 4: Localize
+                status.text("Localizing text...")
                 progress_bar.progress(55)
                 if "zh-CN" in voice_code:
-                    lang_instr = "natural, idiomatic Mandarin Chinese (Simplified). Output in Simplified Chinese characters only."
+                    lang_instr = "natural Mandarin Chinese (Simplified). Output in Simplified Chinese characters only."
                 elif "ar-SA" in voice_code:
-                    lang_instr = "natural, idiomatic Modern Standard Arabic. Output in Arabic script only. Keep it concise (max 200 words)."
+                    lang_instr = "natural Modern Standard Arabic. Output in Arabic script only. Keep it concise."
                 elif "pt-BR" in voice_code:
-                    lang_instr = "natural, idiomatic Brazilian Portuguese. Output in Portuguese only."
+                    lang_instr = "natural Brazilian Portuguese. Output in Portuguese only."
                 elif "fr-FR" in voice_code:
-                    lang_instr = "natural, idiomatic French (Parisian)."
+                    lang_instr = "natural French (Parisian)."
                 elif "es-ES" in voice_code:
-                    lang_instr = "natural, idiomatic Spanish (Castilian)."
+                    lang_instr = "natural Spanish (Castilian)."
                 elif "ht-HT" in voice_code:
-                    lang_instr = "natural, idiomatic Haitian Creole (Kreyòl Ayisyen)."
+                    lang_instr = "natural Haitian Creole (Kreyòl Ayisyen)."
                 else:
-                    lang_instr = "natural, idiomatic US English."
+                    lang_instr = "natural US English."
                 
-                system_prompt = f"""You are an expert voiceover localizer. Rewrite the following transcript into fluid, natural spoken prose.
-Target language/style: {lang_instr}
-Rules:
-- Keep the original meaning exactly.
-- Remove stiff grammar, literal translations, and repetition.
-- Optimize for smooth voiceover delivery.
-- Return ONLY the polished text, nothing else."""
+                system_prompt = f"""You are a voiceover localizer. Rewrite the transcript into fluid, natural spoken prose.
+Target: {lang_instr}
+Rules: Keep original meaning, remove stiff grammar, avoid repetition, optimize for spoken delivery.
+Return ONLY the polished text, nothing else."""
                 
                 response = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
@@ -346,9 +363,9 @@ Rules:
                 )
                 localized_text = response.choices[0].message.content.strip()
                 localized_text = clean_repetitions(localized_text)
-                st.info(f"Localized script: \"{localized_text[:300]}...\" (truncated)")
+                st.info(f"Localized script: \"{localized_text[:300]}...\"")
                 
-                # Step 6: Generate TTS
+                # Step 5: Generate TTS
                 status.text("Generating voiceover...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
@@ -363,30 +380,28 @@ Rules:
                 
                 tts_success = asyncio.run(generate_tts(localized_text, output_audio, voice_code, fallback))
                 if not tts_success:
-                    raise Exception("TTS generation failed.")
-                if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-                    raise Exception("TTS produced an empty file.")
+                    raise Exception("TTS failed.")
                 audio_duration = get_duration(output_audio)
                 
-                # Step 7: Synchronize durations – either extend video (if audio longer) or speed up video (if audio shorter)
-                status.text("Synchronizing video and audio...")
+                # Step 6: Synchronize (PAD AUDIO with silence – no speed‑up)
+                status.text("Synchronizing video and audio (padding silence)...")
                 progress_bar.progress(85)
                 if audio_duration > video_duration:
-                    st.warning(f"Voiceover longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video with frozen last frame.")
+                    st.warning(f"Voiceover longer ({audio_duration:.1f}s). Extending video with frozen last frame.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
                     working_audio = output_audio
                     final_duration = audio_duration
                 else:
-                    st.info(f"Voiceover shorter ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Speeding up video to match voiceover.")
-                    working_video = speed_up_video("video.mp4", "sped_up_video.mp4", video_duration, audio_duration)
-                    working_audio = output_audio
-                    final_duration = audio_duration
+                    st.info(f"Voiceover shorter ({audio_duration:.1f}s). Adding silence to match video length.")
+                    working_audio = pad_audio_with_silence_reliable(output_audio, "padded_audio.mp3", video_duration)
+                    working_video = "video.mp4"
+                    final_duration = video_duration
                 
-                # Step 8: Generate subtitles for final duration
+                # Step 7: Subtitles
                 generate_srt_file(localized_text, final_duration, "subtitles.srt")
                 
-                # Step 9: Mix audio and burn subtitles
-                status.text("Mixing and burning subtitles...")
+                # Step 8: Mix and burn
+                status.text("Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
                 cmd = [
                     "ffmpeg", "-i", working_video, "-i", working_audio,
@@ -402,19 +417,16 @@ Rules:
                     st.error(f"FFmpeg error: {result.stderr}")
                     raise Exception("Mixing failed.")
                 
-                if not os.path.exists(final_output) or os.path.getsize(final_output) == 0:
-                    raise Exception("Final output file is empty.")
-                
-                # Cleanup temp files
-                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "sped_up_video.mp4"]:
-                    if os.path.exists(tmp):
-                        os.remove(tmp)
+                # Cleanup
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "temp_orig.wav", "temp_silence.wav"]:
+                    if os.path.exists(f):
+                        os.remove(f)
                 
                 progress_bar.progress(100)
-                status.text("All systems harmonized! Video ready.")
+                status.text("All systems harmonized!")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                st.success("Final video created successfully:")
+                st.success("Final video ready:")
                 with open(final_output, "rb") as f:
                     st.video(f.read(), format="video/mp4")
                     
