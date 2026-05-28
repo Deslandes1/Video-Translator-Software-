@@ -77,6 +77,7 @@ def get_duration(file_path):
         return 0.0
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
+    """Extend video by freezing the last frame; pads audio with silence."""
     orig_dur = get_duration(original_video)
     if orig_dur >= target_duration:
         subprocess.run([
@@ -95,6 +96,23 @@ def extend_video_with_last_frame(original_video, output_video, target_duration):
         output_video, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return output_video
+
+def pad_audio_with_silence(input_audio, output_audio, target_duration):
+    """Append silence at the end of audio to reach target_duration."""
+    current_dur = get_duration(input_audio)
+    if current_dur >= target_duration:
+        subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return output_audio
+    pad_duration = target_duration - current_dur
+    subprocess.run([
+        "ffmpeg", "-i", input_audio,
+        "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
+        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
+        "-c:a", "aac", "-b:a", "128k",
+        output_audio, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return output_audio
 
 def generate_srt_file(text, duration_sec, output_srt_path):
     words = text.split()
@@ -123,15 +141,10 @@ def generate_srt_file(text, duration_sec, output_srt_path):
             f.write(f"{caption_text}\n\n")
 
 def clean_repetitions(text):
-    """Remove repeated identical phrases (like 'al-musta'khdim' repeated many times)."""
-    # If text is too long and has a repeating pattern, truncate after 200 words
+    """Remove repeated identical phrases."""
     words = text.split()
     if len(words) > 400:
-        # Check for repetitive word at the end
-        last_word = words[-1] if words else ""
-        # If the same word appears more than 5 times in the last 10 words, truncate
         if words[-10:] and len(set(words[-10:])) < 3:
-            # Find first occurrence of the repetition
             unique_phrases = []
             for w in words:
                 if w not in unique_phrases or len(unique_phrases) > 50:
@@ -140,7 +153,7 @@ def clean_repetitions(text):
             return " ".join(unique_phrases)
     return text
 
-# 4. Sidebar with expanded language options
+# 4. Sidebar with all languages
 st.sidebar.markdown("## GlobalInternet.py")
 st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
@@ -229,7 +242,7 @@ with col_right:
             
             try:
                 # Cleanup
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "last.png"]:
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3", "last.png"]:
                     if os.path.exists(f):
                         os.remove(f)
                 
@@ -273,10 +286,9 @@ with col_right:
                     )
                 base_text = str(raw_translation).strip()
                 
-                # STEP 4b: Enhanced Localization for each language
+                # STEP 4b: Localization per language
                 status_text.text("Refining text into natural native phrasing...")
                 
-                # Language-specific instructions
                 if "zh-CN" in voice_code:
                     target_lang_instruction = "natural, idiomatic, flowing Mandarin Chinese (Simplified). Output in Simplified Chinese characters (汉字), no pinyin, no transliteration. Keep the tone conversational and natural."
                 elif "ar-SA" in voice_code:
@@ -305,26 +317,22 @@ with col_right:
                 - IMPORTANT: For Arabic, output in Arabic script (عربي). For Chinese, output in Simplified Chinese characters. For Portuguese, output in Portuguese.
                 """
                 
-                # Increase max_tokens and add repetition_penalty
                 localization_response = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": base_text}
                     ],
-                    temperature=0.2,           # lower temperature for more deterministic output
-                    max_tokens=800,            # enough for long translations
-                    frequency_penalty=0.5,     # penalize repetition
+                    temperature=0.2,
+                    max_tokens=800,
+                    frequency_penalty=0.5,
                     presence_penalty=0.5,
                 )
                 detected_text = localization_response.choices[0].message.content.strip()
-                
-                # Post-process to remove any potential repetitions
                 detected_text = clean_repetitions(detected_text)
-                
                 st.info(f"Polished Native Expression Map: \"{detected_text[:500]}...\" (truncated)")
                 
-                # STEP 5: Generate TTS with appropriate fallback
+                # STEP 5: Generate TTS
                 status_text.text("Synthesizing true native voice frequencies...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
@@ -348,17 +356,24 @@ with col_right:
                 if not tts_success:
                     raise Exception("TTS generation failed.")
                 
-                # STEP 6: Check durations and extend video if needed
-                status_text.text("Adjusting video length to match voiceover...")
+                # STEP 6: Sync durations – extend video OR pad audio
+                status_text.text("Synchronizing audio and video durations...")
                 audio_duration = get_duration(output_audio)
-                if audio_duration > video_duration:
-                    st.warning(f"Voiceover duration ({audio_duration:.1f}s) longer than original video ({video_duration:.1f}s). Extending video with frozen last frame.")
-                    working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
-                else:
-                    working_video = "video.mp4"
                 
-                # STEP 7: Generate subtitles (use the longer duration)
-                final_duration = max(video_duration, audio_duration)
+                if audio_duration > video_duration:
+                    st.warning(f"Voiceover longer than video ({audio_duration:.1f}s > {video_duration:.1f}s). Extending video with frozen last frame.")
+                    working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
+                    working_audio = output_audio
+                    final_duration = audio_duration
+                else:
+                    # Voiceover shorter: pad with silence
+                    st.info(f"Voiceover shorter than video ({audio_duration:.1f}s < {video_duration:.1f}s). Adding silence at end.")
+                    working_video = "video.mp4"
+                    padded_audio = pad_audio_with_silence(output_audio, "padded_audio.mp3", video_duration)
+                    working_audio = padded_audio
+                    final_duration = video_duration
+                
+                # STEP 7: Generate subtitles to match final duration
                 generate_srt_file(detected_text, final_duration, "subtitles.srt")
                 
                 # STEP 8: Mix audio and burn subtitles
@@ -367,7 +382,7 @@ with col_right:
                 final_video_output = "final_output.mp4"
                 
                 cmd = [
-                    "ffmpeg", "-i", working_video, "-i", output_audio,
+                    "ffmpeg", "-i", working_video, "-i", working_audio,
                     "-filter_complex", 
                     "[0:a]volume=0.2[a1];[1:a]volume=1.5[a2];[a1][a2]amix=inputs=2:duration=longest[a]",
                     "-map", "0:v", "-map", "[a]",
@@ -383,7 +398,7 @@ with col_right:
                     raise Exception("FFmpeg mixing failed.")
                 
                 # Cleanup
-                for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "last.png"]:
+                for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "last.png"]:
                     if os.path.exists(f_cleanup):
                         os.remove(f_cleanup)
                 
