@@ -69,19 +69,40 @@ def get_duration(file_path):
         return 0.0
 
 def pad_audio_with_silence(input_audio, output_audio, target_duration):
-    """Append silence at the end of audio to exactly reach target_duration using apad filter."""
+    """Robust padding: generate silence and concatenate."""
     current = get_duration(input_audio)
     if current >= target_duration - 0.1:
         subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_audio
+    
     pad_duration = target_duration - current
+    silence_file = "silence_pad.wav"
+    # Generate silence
     subprocess.run([
-        "ffmpeg", "-i", input_audio,
-        "-af", f"apad=pad_dur={pad_duration}",
+        "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
+        silence_file, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    if not os.path.exists(silence_file) or os.path.getsize(silence_file) == 0:
+        raise Exception("Failed to generate silence file.")
+    
+    # Concatenate original audio + silence
+    subprocess.run([
+        "ffmpeg", "-i", input_audio, "-i", silence_file,
+        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
         "-c:a", "aac", "-b:a", "128k",
         output_audio, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    # Cleanup
+    if os.path.exists(silence_file):
+        os.remove(silence_file)
+    
+    # Verify output
+    if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
+        raise Exception("Padding produced empty file.")
+    
     return output_audio
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
@@ -265,7 +286,7 @@ with col_right:
             
             try:
                 # Cleanup old files
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "padded_audio.mp3", "extended_video.mp4"]:
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "padded_audio.mp3", "extended_video.mp4", "silence_pad.wav"]:
                     if os.path.exists(f):
                         os.remove(f)
                 
@@ -295,7 +316,7 @@ with col_right:
                     "-acodec", "libmp3lame", "-q:a", "2", "extracted_audio.mp3", "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                if not os.path.exists("extracted_audio.mp3"):
+                if not os.path.exists("extracted_audio.mp3") or os.path.getsize("extracted_audio.mp3") == 0:
                     raise Exception("Failed to extract audio from video.")
                 
                 # Step 4: Transcribe with Groq Whisper
@@ -385,10 +406,6 @@ Rules:
                     working_video = "video.mp4"
                     final_duration = video_duration
                 
-                # Verify padded audio was created successfully
-                if not os.path.exists(working_audio) or os.path.getsize(working_audio) == 0:
-                    raise Exception("Audio padding failed – output file is missing or empty.")
-                
                 # Step 8: Generate subtitles for final duration
                 generate_srt_file(localized_text, final_duration, "subtitles.srt")
                 
@@ -413,7 +430,7 @@ Rules:
                     raise Exception("Final output file is empty.")
                 
                 # Cleanup temp files
-                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3"]:
+                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "silence_pad.wav"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
                 
