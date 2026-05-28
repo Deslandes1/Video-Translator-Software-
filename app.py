@@ -7,14 +7,14 @@ import re
 from groq import Groq
 import edge_tts
 
-# 1. Page Configuration
+# ================== Page Config ==================
 st.set_page_config(
     page_title="GlobalInternet.py AI Video Voice Translator",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# 2. Premium Styling
+# ================== Styling ==================
 st.markdown(
     """
     <style>
@@ -48,27 +48,9 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 3. Async TTS with fallback
-async def generate_male_voice(text, output_path, voice_name, fallback_voice="fr-FR-HenriNeural"):
-    try:
-        communicate = edge_tts.Communicate(text, voice_name)
-        await communicate.save(output_path)
-        if os.path.getsize(output_path) == 0:
-            raise Exception("Empty audio file")
-        return True
-    except Exception as e:
-        st.warning(f"Primary voice '{voice_name}' failed: {str(e)}. Falling back to {fallback_voice}.")
-        try:
-            communicate = edge_tts.Communicate(text, fallback_voice)
-            await communicate.save(output_path)
-            if os.path.getsize(output_path) == 0:
-                raise Exception("Fallback audio empty")
-            return True
-        except Exception as e2:
-            st.error(f"Fallback voice also failed: {str(e2)}")
-            return False
-
+# ================== Helper Functions ==================
 def get_duration(file_path):
+    """Return duration in seconds using ffprobe."""
     cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
@@ -76,15 +58,33 @@ def get_duration(file_path):
     except:
         return 0.0
 
+def pad_audio_with_silence(input_audio, output_audio, target_duration):
+    """Append silence at the end of audio to exactly reach target_duration."""
+    current = get_duration(input_audio)
+    if current >= target_duration - 0.1:
+        # Already long enough, just copy
+        subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return output_audio
+    pad_duration = target_duration - current
+    # Use aevalsrc to generate silence and concat
+    subprocess.run([
+        "ffmpeg", "-i", input_audio,
+        "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
+        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
+        "-c:a", "aac", "-b:a", "128k",
+        output_audio, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return output_audio
+
 def extend_video_with_last_frame(original_video, output_video, target_duration):
-    """Extend video by freezing the last frame; pads audio with silence."""
+    """Extend video by freezing the last frame; also extends audio with silence."""
     orig_dur = get_duration(original_video)
-    if orig_dur >= target_duration:
+    if orig_dur >= target_duration - 0.1:
         subprocess.run([
             "ffmpeg", "-i", original_video, "-c:v", "copy", "-c:a", "copy", output_video, "-y"
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_video
-    
     pad_duration = target_duration - orig_dur
     subprocess.run([
         "ffmpeg", "-i", original_video,
@@ -97,24 +97,8 @@ def extend_video_with_last_frame(original_video, output_video, target_duration):
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return output_video
 
-def pad_audio_with_silence(input_audio, output_audio, target_duration):
-    """Append silence at the end of audio to reach target_duration."""
-    current_dur = get_duration(input_audio)
-    if current_dur >= target_duration:
-        subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return output_audio
-    pad_duration = target_duration - current_dur
-    subprocess.run([
-        "ffmpeg", "-i", input_audio,
-        "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
-        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
-        "-c:a", "aac", "-b:a", "128k",
-        output_audio, "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return output_audio
-
 def generate_srt_file(text, duration_sec, output_srt_path):
+    """Create a simple SRT file that displays the entire text over the video."""
     words = text.split()
     if not words:
         words = ["Processing..."]
@@ -127,33 +111,49 @@ def generate_srt_file(text, duration_sec, output_srt_path):
         for idx, chunk in enumerate(chunks):
             start_time = idx * chunk_duration
             end_time = (idx + 1) * chunk_duration
-            def format_srt_time(seconds):
-                hrs = int(seconds // 3600)
-                mins = int((seconds % 3600) // 60)
-                secs = int(seconds % 60)
-                mils = int((seconds % 1) * 1000)
-                return f"{hrs:02d}:{mins:02d}:{secs:02d},{mils:03d}"
-            srt_start = format_srt_time(start_time)
-            srt_end = format_srt_time(end_time)
-            caption_text = " ".join(chunk)
-            f.write(f"{idx + 1}\n")
-            f.write(f"{srt_start} --> {srt_end}\n")
-            f.write(f"{caption_text}\n\n")
+            def fmt(sec):
+                h = int(sec // 3600)
+                m = int((sec % 3600) // 60)
+                s = int(sec % 60)
+                ms = int((sec % 1) * 1000)
+                return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+            f.write(f"{idx+1}\n{fmt(start_time)} --> {fmt(end_time)}\n{' '.join(chunk)}\n\n")
 
 def clean_repetitions(text):
-    """Remove repeated identical phrases."""
+    """Remove obvious repetitive loops (e.g., repeated word at end)."""
     words = text.split()
     if len(words) > 400:
-        if words[-10:] and len(set(words[-10:])) < 3:
-            unique_phrases = []
+        # If last 10 words are all the same, truncate
+        if words[-10:] and len(set(words[-10:])) < 2:
+            unique = []
             for w in words:
-                if w not in unique_phrases or len(unique_phrases) > 50:
+                if w not in unique or len(unique) > 100:
                     break
-                unique_phrases.append(w)
-            return " ".join(unique_phrases)
+                unique.append(w)
+            return " ".join(unique)
     return text
 
-# 4. Sidebar with all languages
+# ================== Async TTS (must be called with asyncio.run) ==================
+async def generate_tts(text, output_path, voice_name, fallback_voice):
+    try:
+        communicate = edge_tts.Communicate(text, voice_name)
+        await communicate.save(output_path)
+        if os.path.getsize(output_path) == 0:
+            raise Exception("Empty file")
+        return True
+    except Exception as e:
+        st.warning(f"Primary voice '{voice_name}' failed: {e}. Trying fallback {fallback_voice}.")
+        try:
+            communicate = edge_tts.Communicate(text, fallback_voice)
+            await communicate.save(output_path)
+            if os.path.getsize(output_path) == 0:
+                raise Exception("Fallback empty")
+            return True
+        except Exception as e2:
+            st.error(f"Fallback also failed: {e2}")
+            return False
+
+# ================== Sidebar ==================
 st.sidebar.markdown("## GlobalInternet.py")
 st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
@@ -180,44 +180,29 @@ col_left, col_right = st.columns([2, 1.8])
 with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("<h4>Source Input Interface</h4>", unsafe_allow_html=True)
-    
     input_method = st.radio(
         "Select Input Source Layer:",
-        ["Upload Video from this Computer (.MP4)", "Paste Video Link (Dropbox, Google Drive)"]
+        ["Upload Video from this Computer (.MP4)", "Paste Video Link (YouTube, Dropbox, Google Drive, Vimeo)"]
     )
-    
     video_ready = False
-    is_link = False
     download_url = ""
     uploaded_file = None
     
-    if input_method == "Paste Video Link (Dropbox, Google Drive)":
-        is_link = True
+    if input_method == "Paste Video Link (YouTube, Dropbox, Google Drive, Vimeo)":
         raw_url = st.text_input("Paste Video Link Here:").strip()
         if raw_url:
-            download_url = raw_url
-            video_ready = True
-            if "dropbox.com" in raw_url:
-                if "dl=0" in raw_url:
-                    download_url = raw_url.replace("dl=0", "raw=1")
-                elif "dl=1" in raw_url:
-                    download_url = raw_url.replace("dl=1", "raw=1")
-                elif "raw=1" not in raw_url:
-                    download_url = f"{raw_url}&raw=1" if "?" in raw_url else f"{raw_url}?raw=1"
-            elif "drive.google.com" in raw_url:
-                file_id = ""
-                if "/file/d/" in raw_url:
-                    file_id = raw_url.split("/file/d/")[1].split("/")[0]
-                elif "id=" in raw_url:
-                    file_id = raw_url.split("id=")[1].split("&")[0]
-                if file_id:
-                    download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-            try:
-                st.video(raw_url)
-            except Exception:
-                st.info("Link armed for mixed-audio background operations.")
+            # Basic validation: must be a URL
+            if not (raw_url.startswith("http://") or raw_url.startswith("https://")):
+                st.error("Please enter a valid URL (starts with http:// or https://)")
+            else:
+                download_url = raw_url
+                video_ready = True
+                try:
+                    st.video(raw_url)
+                except Exception:
+                    st.info("Link accepted – will be downloaded during processing.")
     else:
-        uploaded_file = st.file_uploader("Choose a video file:", type=["mp4", "mov", "mkv"])
+        uploaded_file = st.file_uploader("Choose a video file:", type=["mp4", "mov", "mkv", "avi"])
         if uploaded_file is not None:
             st.video(uploaded_file)
             video_ready = True
@@ -226,98 +211,102 @@ with col_left:
 with col_right:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("<h4>Neural Pipeline Controls</h4>", unsafe_allow_html=True)
-    
     process_btn = st.button("Execute Voice Sync Overdub & Captions")
     
     if process_btn:
         if not video_ready:
-            st.error("Error: Input file target path missing.")
+            st.error("Error: Please provide a video file or a valid link.")
         elif "GROQ_API_KEY" not in st.secrets:
-            st.error("Missing Integration Token: Place your 'GROQ_API_KEY' inside the Secrets drawer.")
+            st.error("Missing Groq API key. Add GROQ_API_KEY to your Streamlit secrets.")
         else:
             st.markdown('<div class="status-box">', unsafe_allow_html=True)
             st.markdown("<h5>System Pipeline Progress Status</h5>", unsafe_allow_html=True)
-            status_text = st.empty()
+            status = st.empty()
             progress_bar = st.progress(0)
             
             try:
-                # Cleanup
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3", "last.png"]:
+                # Cleanup old files
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "padded_audio.mp3", "extended_video.mp4"]:
                     if os.path.exists(f):
                         os.remove(f)
                 
-                # STEP 1: Download video
-                if is_link:
-                    status_text.text("Streaming original file...")
-                    progress_bar.progress(15)
-                    response = requests.get(download_url, stream=True)
-                    response.raise_for_status()
-                    with open("video.mp4", "wb") as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                else:
-                    status_text.text("Ingesting video data...")
-                    progress_bar.progress(15)
+                # Step 1: Get video file
+                status.text("Downloading / reading video...")
+                progress_bar.progress(10)
+                if uploaded_file:
                     with open("video.mp4", "wb") as f:
                         f.write(uploaded_file.getbuffer())
+                else:
+                    # Try to download using yt-dlp for YouTube, etc.
+                    try:
+                        import yt_dlp
+                        ydl_opts = {'outtmpl': 'video.mp4', 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', 'quiet': True}
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            ydl.download([download_url])
+                    except Exception as dl_e:
+                        # Fallback: direct download (for raw MP4 links)
+                        st.warning(f"yt-dlp failed ({dl_e}), trying direct download...")
+                        resp = requests.get(download_url, stream=True, timeout=30)
+                        resp.raise_for_status()
+                        with open("video.mp4", "wb") as f:
+                            for chunk in resp.iter_content(chunk_size=8192):
+                                f.write(chunk)
                 
-                # STEP 2: Get video duration
+                if not os.path.exists("video.mp4") or os.path.getsize("video.mp4") == 0:
+                    raise Exception("Failed to obtain video file.")
+                
+                # Step 2: Get video duration
                 video_duration = get_duration("video.mp4")
                 if video_duration <= 0:
                     video_duration = 30.0
                 
-                # STEP 3: Extract audio for transcription
-                status_text.text("Extracting original audio...")
-                progress_bar.progress(30)
+                # Step 3: Extract original audio for transcription
+                status.text("Extracting audio...")
+                progress_bar.progress(25)
                 subprocess.run([
                     "ffmpeg", "-i", "video.mp4", "-vn",
                     "-acodec", "libmp3lame", "-q:a", "2", "extracted_audio.mp3", "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # STEP 4: Groq Whisper Translation
-                status_text.text("AI Engine reading language tracks...")
-                progress_bar.progress(50)
+                # Step 4: Transcribe with Groq Whisper
+                status.text("Transcribing original audio...")
+                progress_bar.progress(40)
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 with open("extracted_audio.mp3", "rb") as audio_file:
-                    raw_translation = client.audio.translations.create(
+                    transcription = client.audio.translations.create(
                         file=("extracted_audio.mp3", audio_file.read()),
                         model="whisper-large-v3",
                         response_format="text"
                     )
-                base_text = str(raw_translation).strip()
+                base_text = str(transcription).strip()
                 
-                # STEP 4b: Localization per language
-                status_text.text("Refining text into natural native phrasing...")
-                
+                # Step 5: Localize to target language
+                status.text("Localizing text to selected language...")
+                progress_bar.progress(55)
                 if "zh-CN" in voice_code:
-                    target_lang_instruction = "natural, idiomatic, flowing Mandarin Chinese (Simplified). Output in Simplified Chinese characters (汉字), no pinyin, no transliteration. Keep the tone conversational and natural."
+                    lang_instr = "natural, idiomatic Mandarin Chinese (Simplified). Output in Simplified Chinese characters only."
                 elif "ar-SA" in voice_code:
-                    target_lang_instruction = "natural, idiomatic, flowing Modern Standard Arabic. Output in Arabic script (العربية), no transliteration. Use correct Arabic grammar and avoid repetition. Keep the text concise (maximum 200 words)."
+                    lang_instr = "natural, idiomatic Modern Standard Arabic. Output in Arabic script only. Keep it concise (max 200 words)."
                 elif "pt-BR" in voice_code:
-                    target_lang_instruction = "natural, idiomatic, flowing Brazilian Portuguese. Output in Portuguese, avoid English words. Keep the text natural for voiceover."
+                    lang_instr = "natural, idiomatic Brazilian Portuguese. Output in Portuguese only."
                 elif "fr-FR" in voice_code:
-                    target_lang_instruction = "natural, idiomatic, flowing French as spoken by a native Parisian male speaker"
+                    lang_instr = "natural, idiomatic French (Parisian)."
                 elif "es-ES" in voice_code:
-                    target_lang_instruction = "natural, idiomatic, flowing Spanish as spoken by a native male speaker"
+                    lang_instr = "natural, idiomatic Spanish (Castilian)."
                 elif "ht-HT" in voice_code:
-                    target_lang_instruction = "natural, idiomatic, flowing Haitian Creole (Kreyòl Ayisyen) as spoken by a native speaker"
+                    lang_instr = "natural, idiomatic Haitian Creole (Kreyòl Ayisyen)."
                 else:
-                    target_lang_instruction = "natural, idiomatic conversational US English"
-
-                system_prompt = f"""
-                You are an expert voiceover localizer. Take the raw translated text and rewrite it into fluid, high-impact verbal prose.
-                Target Style: {target_lang_instruction}
-                Rules:
-                - Maintain exact original core meaning.
-                - Eliminate stiff grammar, literal translations, awkward structures.
-                - Optimize for spoken vocal delivery (smooth, natural, no repetition).
-                - Do NOT repeat words or phrases unnecessarily.
-                - Keep the output length reasonable (max 250 words).
-                - Return ONLY the polished text. No extras, no explanations.
-                - IMPORTANT: For Arabic, output in Arabic script (عربي). For Chinese, output in Simplified Chinese characters. For Portuguese, output in Portuguese.
-                """
+                    lang_instr = "natural, idiomatic US English."
                 
-                localization_response = client.chat.completions.create(
+                system_prompt = f"""You are an expert voiceover localizer. Rewrite the following transcript into fluid, natural spoken prose.
+Target language/style: {lang_instr}
+Rules:
+- Keep the original meaning exactly.
+- Remove stiff grammar, literal translations, and repetition.
+- Optimize for smooth voiceover delivery.
+- Return ONLY the polished text, nothing else."""
+                
+                response = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -326,99 +315,82 @@ with col_right:
                     temperature=0.2,
                     max_tokens=800,
                     frequency_penalty=0.5,
-                    presence_penalty=0.5,
+                    presence_penalty=0.5
                 )
-                detected_text = localization_response.choices[0].message.content.strip()
-                detected_text = clean_repetitions(detected_text)
-                st.info(f"Polished Native Expression Map: \"{detected_text[:500]}...\" (truncated)")
+                localized_text = response.choices[0].message.content.strip()
+                localized_text = clean_repetitions(localized_text)
+                st.info(f"Localized script: \"{localized_text[:300]}...\" (truncated)")
                 
-                # STEP 5: Generate TTS
-                status_text.text("Synthesizing true native voice frequencies...")
+                # Step 6: Generate TTS (using asyncio.run)
+                status.text("Generating voiceover...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
-                
+                # Determine fallback voice
                 if "fr" in voice_code:
-                    fallback_voice = "fr-FR-HenriNeural"
+                    fallback = "fr-FR-HenriNeural"
                 elif "es" in voice_code:
-                    fallback_voice = "es-ES-AlvaroNeural"
+                    fallback = "es-ES-AlvaroNeural"
                 elif "ht" in voice_code:
-                    fallback_voice = "fr-FR-HenriNeural"
-                elif "zh" in voice_code:
-                    fallback_voice = "en-US-ChristopherNeural"
-                elif "ar" in voice_code:
-                    fallback_voice = "en-US-ChristopherNeural"
-                elif "pt" in voice_code:
-                    fallback_voice = "en-US-ChristopherNeural"
+                    fallback = "fr-FR-HenriNeural"
                 else:
-                    fallback_voice = "en-US-ChristopherNeural"
+                    fallback = "en-US-ChristopherNeural"
                 
-                tts_success = asyncio.run(generate_male_voice(detected_text, output_audio, voice_code, fallback_voice))
+                tts_success = asyncio.run(generate_tts(localized_text, output_audio, voice_code, fallback))
                 if not tts_success:
                     raise Exception("TTS generation failed.")
-                
-                # STEP 6: Sync durations – extend video OR pad audio
-                status_text.text("Synchronizing audio and video durations...")
                 audio_duration = get_duration(output_audio)
                 
+                # Step 7: Synchronize video and audio durations
+                status.text("Synchronizing video and audio...")
+                progress_bar.progress(85)
                 if audio_duration > video_duration:
-                    st.warning(f"Voiceover longer than video ({audio_duration:.1f}s > {video_duration:.1f}s). Extending video with frozen last frame.")
+                    st.warning(f"Voiceover longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
                     working_audio = output_audio
                     final_duration = audio_duration
                 else:
-                    # Voiceover shorter: pad with silence
-                    st.info(f"Voiceover shorter than video ({audio_duration:.1f}s < {video_duration:.1f}s). Adding silence at end.")
+                    st.info(f"Video longer ({video_duration:.1f}s) than voiceover ({audio_duration:.1f}s). Padding audio with silence.")
+                    working_audio = pad_audio_with_silence(output_audio, "padded_audio.mp3", video_duration)
                     working_video = "video.mp4"
-                    padded_audio = pad_audio_with_silence(output_audio, "padded_audio.mp3", video_duration)
-                    working_audio = padded_audio
                     final_duration = video_duration
                 
-                # STEP 7: Generate subtitles to match final duration
-                generate_srt_file(detected_text, final_duration, "subtitles.srt")
+                # Step 8: Generate subtitles for final duration
+                generate_srt_file(localized_text, final_duration, "subtitles.srt")
                 
-                # STEP 8: Mix audio and burn subtitles
-                status_text.text("Mixing audio layers and burning captions...")
-                progress_bar.progress(85)
-                final_video_output = "final_output.mp4"
-                
+                # Step 9: Mix audio and burn subtitles
+                status.text("Mixing and burning subtitles...")
+                final_output = "final_output.mp4"
                 cmd = [
                     "ffmpeg", "-i", working_video, "-i", working_audio,
-                    "-filter_complex", 
-                    "[0:a]volume=0.2[a1];[1:a]volume=1.5[a2];[a1][a2]amix=inputs=2:duration=longest[a]",
+                    "-filter_complex", "[0:a]volume=0.2[a1];[1:a]volume=1.5[a2];[a1][a2]amix=inputs=2:duration=longest[a]",
                     "-map", "0:v", "-map", "[a]",
                     "-vf", "subtitles=subtitles.srt",
                     "-c:v", "libx264", "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-shortest",
-                    final_video_output, "-y"
+                    final_output, "-y"
                 ]
-                
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
                     st.error(f"FFmpeg error: {result.stderr}")
-                    raise Exception("FFmpeg mixing failed.")
+                    raise Exception("Mixing failed.")
                 
-                # Cleanup
-                for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "last.png"]:
-                    if os.path.exists(f_cleanup):
-                        os.remove(f_cleanup)
+                # Cleanup temp files
+                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3"]:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
                 
                 progress_bar.progress(100)
-                status_text.text("All Systems Harmonized! Video Production Compiled.")
+                status.text("All systems harmonized! Video ready.")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                st.success("Successfully Compiled Combined Studio Output Layer:")
-                st.markdown("#### Translated Media Output Box")
-                
-                if os.path.exists(final_video_output) and os.path.getsize(final_video_output) > 0:
-                    with open(final_video_output, "rb") as f:
-                        st.video(f.read(), format="video/mp4")
-                else:
-                    st.error("Final video file was not created correctly.")
+                st.success("Final video created successfully:")
+                with open(final_output, "rb") as f:
+                    st.video(f.read(), format="video/mp4")
                     
             except Exception as e:
                 progress_bar.empty()
-                status_text.empty()
-                st.error(f"Pipeline Interrupted: {str(e)}")
+                status.empty()
+                st.error(f"Pipeline error: {str(e)}")
                 st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
