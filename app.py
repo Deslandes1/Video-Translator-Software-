@@ -76,7 +76,7 @@ def get_duration(file_path):
         return 0.0
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
-    """Extend video by freezing the last frame; keeps original audio (padded with silence)."""
+    """Extend video by freezing the last frame; pads audio with silence."""
     orig_dur = get_duration(original_video)
     if orig_dur >= target_duration:
         subprocess.run([
@@ -85,7 +85,6 @@ def extend_video_with_last_frame(original_video, output_video, target_duration):
         return output_video
     
     pad_duration = target_duration - orig_dur
-    # Use tpad for video and apad for audio (pad with silence)
     subprocess.run([
         "ffmpeg", "-i", original_video,
         "-vf", f"tpad=stop_mode=clone:stop_duration={pad_duration}",
@@ -123,7 +122,7 @@ def generate_srt_file(text, duration_sec, output_srt_path):
             f.write(f"{srt_start} --> {srt_end}\n")
             f.write(f"{caption_text}\n\n")
 
-# 4. Sidebar
+# 4. Sidebar with expanded language options
 st.sidebar.markdown("## GlobalInternet.py")
 st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
@@ -133,7 +132,10 @@ voice_options = {
     "Français (Native French Male - Henri)": "fr-FR-HenriNeural",
     "Español (Native Spanish Male - Alvaro)": "es-ES-AlvaroNeural",
     "English (Native US Male - Christopher)": "en-US-ChristopherNeural",
-    "Kreyòl Ayisyen (Haitian Creole Native - Michelle)": "ht-HT-MichelleNeural"
+    "Kreyòl Ayisyen (Haitian Creole Native - Michelle)": "ht-HT-MichelleNeural",
+    "中文 (Chinese Mandarin Male - Yunxi)": "zh-CN-YunxiNeural",
+    "العربية (Arabic Male - Hamed)": "ar-SA-HamedNeural",
+    "Português (Brazilian Portuguese Male - Antonio)": "pt-BR-AntonioNeural"
 }
 selected_voice_label = st.sidebar.selectbox("Select Native Overdub Language Layer", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]
@@ -253,7 +255,7 @@ with col_right:
                     )
                 base_text = str(raw_translation).strip()
                 
-                # STEP 4b: Localization
+                # STEP 4b: Localization - updated for all languages
                 status_text.text("Refining text into natural native phrasing...")
                 if "fr-FR" in voice_code:
                     target_lang_instruction = "natural, idiomatic, flowing French as spoken by a native Parisian male speaker"
@@ -261,6 +263,12 @@ with col_right:
                     target_lang_instruction = "natural, idiomatic, flowing Spanish as spoken by a native male speaker"
                 elif "ht-HT" in voice_code:
                     target_lang_instruction = "natural, idiomatic, flowing Haitian Creole (Kreyòl Ayisyen) as spoken by a native speaker"
+                elif "zh-CN" in voice_code:
+                    target_lang_instruction = "natural, idiomatic, flowing Mandarin Chinese (Simplified) as spoken by a native speaker"
+                elif "ar-SA" in voice_code:
+                    target_lang_instruction = "natural, idiomatic, flowing Modern Standard Arabic as spoken by a native speaker"
+                elif "pt-BR" in voice_code:
+                    target_lang_instruction = "natural, idiomatic, flowing Brazilian Portuguese as spoken by a native speaker"
                 else:
                     target_lang_instruction = "natural, idiomatic conversational US English"
 
@@ -284,16 +292,24 @@ with col_right:
                 detected_text = localization_response.choices[0].message.content.strip()
                 st.info(f"Polished Native Expression Map: \"{detected_text}\"")
                 
-                # STEP 5: Generate TTS
+                # STEP 5: Generate TTS with appropriate fallback
                 status_text.text("Synthesizing true native voice frequencies...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
+                
+                # Define fallback voices
                 if "fr" in voice_code:
                     fallback_voice = "fr-FR-HenriNeural"
                 elif "es" in voice_code:
                     fallback_voice = "es-ES-AlvaroNeural"
                 elif "ht" in voice_code:
                     fallback_voice = "fr-FR-HenriNeural"
+                elif "zh" in voice_code:
+                    fallback_voice = "en-US-ChristopherNeural"  # fallback to English
+                elif "ar" in voice_code:
+                    fallback_voice = "en-US-ChristopherNeural"
+                elif "pt" in voice_code:
+                    fallback_voice = "en-US-ChristopherNeural"
                 else:
                     fallback_voice = "en-US-ChristopherNeural"
                 
@@ -319,7 +335,6 @@ with col_right:
                 progress_bar.progress(85)
                 final_video_output = "final_output.mp4"
                 
-                # FFmpeg command with better error capture
                 cmd = [
                     "ffmpeg", "-i", working_video, "-i", output_audio,
                     "-filter_complex", 
@@ -331,13 +346,12 @@ with col_right:
                     final_video_output, "-y"
                 ]
                 
-                # Run with output capture for debugging
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
                     st.error(f"FFmpeg error: {result.stderr}")
                     raise Exception("FFmpeg mixing failed.")
                 
-                # Cleanup temporary files (keep final)
+                # Cleanup
                 for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "last.png"]:
                     if os.path.exists(f_cleanup):
                         os.remove(f_cleanup)
