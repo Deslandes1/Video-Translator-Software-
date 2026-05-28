@@ -47,10 +47,26 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 3. Async Helper for True Native Male Voices (now includes Haitian Creole)
-async def generate_male_voice(text, output_path, voice_name):
-    communicate = edge_tts.Communicate(text, voice_name)
-    await communicate.save(output_path)
+# 3. Async Helper for True Native Male Voices (with fallback)
+async def generate_male_voice(text, output_path, voice_name, fallback_voice="fr-FR-HenriNeural"):
+    try:
+        communicate = edge_tts.Communicate(text, voice_name)
+        await communicate.save(output_path)
+        # Check if file is empty
+        if os.path.getsize(output_path) == 0:
+            raise Exception("Generated audio file is empty")
+        return True
+    except Exception as e:
+        st.warning(f"Primary voice '{voice_name}' failed: {str(e)}. Falling back to {fallback_voice}.")
+        try:
+            communicate = edge_tts.Communicate(text, fallback_voice)
+            await communicate.save(output_path)
+            if os.path.getsize(output_path) == 0:
+                raise Exception("Fallback audio also empty")
+            return True
+        except Exception as e2:
+            st.error(f"Fallback voice also failed: {str(e2)}")
+            return False
 
 # Helper to break flat text down into artificial SRT timelines to span across video length
 def generate_srt_file(text, duration_sec, output_srt_path):
@@ -90,12 +106,12 @@ st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Strict Premium True-Native Voice Matrix Map (UPDATED: added Haitian Creole)
+# Premium True-Native Voice Matrix Map (Haitian Creole included)
 voice_options = {
     "Français (Native French Male - Henri)": "fr-FR-HenriNeural",
     "Español (Native Spanish Male - Alvaro)": "es-ES-AlvaroNeural",
     "English (Native US Male - Christopher)": "en-US-ChristopherNeural",
-    "Kreyòl Ayisyen (Haitian Creole Native - Michelle)": "ht-HT-MichelleNeural"   # Added Haitian Creole voice
+    "Kreyòl Ayisyen (Haitian Creole Native - Michelle)": "ht-HT-MichelleNeural"
 }
 selected_voice_label = st.sidebar.selectbox("Select Native Overdub Language Layer", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]
@@ -215,7 +231,7 @@ with col_right:
                 
                 base_text = str(raw_translation).strip()
                 
-                # STEP 4b: Cognitive Native Localization Engine Layer (UPDATED for Haitian Creole)
+                # STEP 4b: Cognitive Native Localization Engine Layer
                 status_text.text("Refining text into true, natural native speaker phrasing...")
                 
                 # Determine target language instruction based on selected voice
@@ -223,9 +239,9 @@ with col_right:
                     target_lang_instruction = "natural, idiomatic, flowing French as spoken by a native Parisian male speaker"
                 elif "es-ES" in voice_code:
                     target_lang_instruction = "natural, idiomatic, flowing Spanish as spoken by a native male speaker"
-                elif "ht-HT" in voice_code:   # Haitian Creole
+                elif "ht-HT" in voice_code:
                     target_lang_instruction = "natural, idiomatic, flowing Haitian Creole (Kreyòl Ayisyen) as spoken by a native speaker"
-                else:  # English
+                else:
                     target_lang_instruction = "natural, idiomatic conversational US English"
 
                 system_prompt = f"""
@@ -250,17 +266,30 @@ with col_right:
                 detected_text = localization_response.choices[0].message.content.strip()
                 st.info(f"Polished Native Expression Map: \"{detected_text}\"")
                 
-                # STEP 5: Generate True Native Speech Output (Haitian voice included)
+                # STEP 5: Generate True Native Speech Output (with fallback)
                 status_text.text("Synthesizing true native voice frequencies...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
-                asyncio.run(generate_male_voice(detected_text, output_audio, voice_code))
+                
+                # Define fallback voice based on language group
+                if "fr" in voice_code:
+                    fallback_voice = "fr-FR-HenriNeural"
+                elif "es" in voice_code:
+                    fallback_voice = "es-ES-AlvaroNeural"
+                elif "ht" in voice_code:
+                    fallback_voice = "fr-FR-HenriNeural"  # fallback to French if Haitian fails
+                else:
+                    fallback_voice = "en-US-ChristopherNeural"
+                
+                success = await generate_male_voice(detected_text, output_audio, voice_code, fallback_voice)
+                if not success:
+                    raise Exception("TTS failed for both primary and fallback voices.")
                 
                 # STEP 6: Write Synchronized Captions Track
                 status_text.text("Compiling text caption tracks to match video pacing...")
                 generate_srt_file(detected_text, video_duration, "subtitles.srt")
                 
-                # STEP 7: Multiplex Sound Overlays and Burn Captions via Advanced FFmpeg Audio Graph Filters
+                # STEP 7: Multiplex Sound Overlays and Burn Captions
                 status_text.text("Mixing audio layers (Background + AI Overdub) and burning captions...")
                 progress_bar.progress(85)
                 
@@ -273,7 +302,7 @@ with col_right:
                     "-c:a", "aac", "-shortest", final_video_output, "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # Cleanup workspace nodes safely
+                # Cleanup workspace nodes safely (keep final video)
                 for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt"]:
                     if os.path.exists(f_cleanup): os.remove(f_cleanup)
                 
@@ -284,8 +313,12 @@ with col_right:
                 st.success("Successfully Compiled Combined Studio Output Layer:")
                 st.markdown("#### Translated Media Output Box")
                 
-                with open(final_video_output, "rb") as f:
-                    st.video(f.read(), format="video/mp4")
+                # Display the final video
+                if os.path.exists(final_video_output) and os.path.getsize(final_video_output) > 0:
+                    with open(final_video_output, "rb") as f:
+                        st.video(f.read(), format="video/mp4")
+                else:
+                    st.error("Final video file was not created correctly.")
                     
             except Exception as e:
                 progress_bar.empty()
