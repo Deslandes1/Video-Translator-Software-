@@ -77,28 +77,33 @@ def get_duration(file_path):
         return 0.0
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
-    """Create a new video by freezing the last frame of original_video until target_duration."""
-    # Use FFmpeg: extract last frame and loop it
-    temp_last_frame = "last_frame.png"
-    # Extract last frame
+    """
+    Extend the video by freezing the last frame until target_duration.
+    Uses FFmpeg's tpad filter to pad with the last frame.
+    """
+    # First, get the original duration
+    original_duration = get_duration(original_video)
+    if original_duration >= target_duration:
+        # No need to extend, just copy
+        subprocess.run(["ffmpeg", "-i", original_video, "-c", "copy", output_video, "-y"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return output_video
+    
+    # Calculate padding needed
+    pad_duration = target_duration - original_duration
+    
+    # Use tpad filter: stop_mode=clone (freezes last frame) + pad duration
+    # Also remove audio (we will add TTS later)
     subprocess.run([
-        "ffmpeg", "-i", original_video, "-vf", "select='eq(n,80)'",  # crude but works, better use:
-        "-vframes", "1", temp_last_frame, "-y"
+        "ffmpeg", "-i", original_video,
+        "-vf", f"tpad=stop_mode=clone:stop_duration={pad_duration}",
+        "-an",  # discard original audio
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-t", str(target_duration),
+        output_video, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Better: use `ffmpeg -i original.mp4 -vframes 1 -vf "select=gte(n\,frames-1)"` but simpler: just use scale
-    subprocess.run([
-        "ffmpeg", "-i", original_video, "-frames:v", "1", "-f", "image2", temp_last_frame, "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Generate extended video from that frame
-    subprocess.run([
-        "ffmpeg", "-loop", "1", "-i", temp_last_frame, "-t", str(target_duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "extended_video.mp4", "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Extract original audio (none, but keep silent) - we will mix with TTS later
-    # Cleanup
-    if os.path.exists(temp_last_frame):
-        os.remove(temp_last_frame)
-    return "extended_video.mp4"
+    
+    return output_video
 
 def generate_srt_file(text, duration_sec, output_srt_path):
     words = text.split()
@@ -324,7 +329,7 @@ with col_right:
                 progress_bar.progress(85)
                 final_video_output = "final_output.mp4"
                 
-                # FFmpeg command: use the working_video (original or extended)
+                # Use working_video (original or extended) and mix with TTS audio
                 subprocess.run([
                     "ffmpeg", "-i", working_video, "-i", output_audio,
                     "-filter_complex", "[0:a]volume=0.15[bg];[1:a]volume=1.8[ai];[bg][ai]amix=inputs=2:duration=first",
