@@ -4,6 +4,17 @@ import subprocess
 import requests
 import asyncio
 import re
+import sys
+import importlib
+
+# Ensure yt-dlp is installed (for YouTube/Dropbox/etc.)
+try:
+    import yt_dlp
+except ImportError:
+    st.info("Installing yt-dlp for video downloads...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "yt-dlp"])
+    import yt_dlp
+
 from groq import Groq
 import edge_tts
 
@@ -51,6 +62,8 @@ st.markdown(
 # ================== Helper Functions ==================
 def get_duration(file_path):
     """Return duration in seconds using ffprobe."""
+    if not os.path.exists(file_path):
+        return 0.0
     cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
@@ -62,12 +75,10 @@ def pad_audio_with_silence(input_audio, output_audio, target_duration):
     """Append silence at the end of audio to exactly reach target_duration."""
     current = get_duration(input_audio)
     if current >= target_duration - 0.1:
-        # Already long enough, just copy
         subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_audio
     pad_duration = target_duration - current
-    # Use aevalsrc to generate silence and concat
     subprocess.run([
         "ffmpeg", "-i", input_audio,
         "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
@@ -120,10 +131,9 @@ def generate_srt_file(text, duration_sec, output_srt_path):
             f.write(f"{idx+1}\n{fmt(start_time)} --> {fmt(end_time)}\n{' '.join(chunk)}\n\n")
 
 def clean_repetitions(text):
-    """Remove obvious repetitive loops (e.g., repeated word at end)."""
+    """Remove obvious repetitive loops."""
     words = text.split()
     if len(words) > 400:
-        # If last 10 words are all the same, truncate
         if words[-10:] and len(set(words[-10:])) < 2:
             unique = []
             for w in words:
@@ -151,6 +161,33 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
             return True
         except Exception as e2:
             st.error(f"Fallback also failed: {e2}")
+            return False
+
+# ================== Download Video Function ==================
+def download_video(url, output_path):
+    """Download video using yt-dlp, returns True on success."""
+    try:
+        ydl_opts = {
+            'outtmpl': output_path,
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'quiet': True,
+            'no_warnings': True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        return True
+    except Exception as e:
+        st.warning(f"yt-dlp failed: {e}")
+        # Try direct download for raw MP4 links
+        try:
+            r = requests.get(url, stream=True, timeout=30)
+            r.raise_for_status()
+            with open(output_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            return True
+        except Exception as e2:
+            st.error(f"Direct download also failed: {e2}")
             return False
 
 # ================== Sidebar ==================
@@ -182,16 +219,15 @@ with col_left:
     st.markdown("<h4>Source Input Interface</h4>", unsafe_allow_html=True)
     input_method = st.radio(
         "Select Input Source Layer:",
-        ["Upload Video from this Computer (.MP4)", "Paste Video Link (YouTube, Dropbox, Google Drive, Vimeo)"]
+        ["Upload Video from this Computer (.MP4)", "Paste Video Link (YouTube, Dropbox, Google Drive, Vimeo, direct MP4)"]
     )
     video_ready = False
     download_url = ""
     uploaded_file = None
     
-    if input_method == "Paste Video Link (YouTube, Dropbox, Google Drive, Vimeo)":
+    if input_method == "Paste Video Link (YouTube, Dropbox, Google Drive, Vimeo, direct MP4)":
         raw_url = st.text_input("Paste Video Link Here:").strip()
         if raw_url:
-            # Basic validation: must be a URL
             if not (raw_url.startswith("http://") or raw_url.startswith("https://")):
                 st.error("Please enter a valid URL (starts with http:// or https://)")
             else:
@@ -237,23 +273,11 @@ with col_right:
                     with open("video.mp4", "wb") as f:
                         f.write(uploaded_file.getbuffer())
                 else:
-                    # Try to download using yt-dlp for YouTube, etc.
-                    try:
-                        import yt_dlp
-                        ydl_opts = {'outtmpl': 'video.mp4', 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', 'quiet': True}
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            ydl.download([download_url])
-                    except Exception as dl_e:
-                        # Fallback: direct download (for raw MP4 links)
-                        st.warning(f"yt-dlp failed ({dl_e}), trying direct download...")
-                        resp = requests.get(download_url, stream=True, timeout=30)
-                        resp.raise_for_status()
-                        with open("video.mp4", "wb") as f:
-                            for chunk in resp.iter_content(chunk_size=8192):
-                                f.write(chunk)
+                    if not download_video(download_url, "video.mp4"):
+                        raise Exception("Failed to download video. Please check the link or use a direct file upload.")
                 
                 if not os.path.exists("video.mp4") or os.path.getsize("video.mp4") == 0:
-                    raise Exception("Failed to obtain video file.")
+                    raise Exception("Video file is empty or could not be saved.")
                 
                 # Step 2: Get video duration
                 video_duration = get_duration("video.mp4")
@@ -267,6 +291,9 @@ with col_right:
                     "ffmpeg", "-i", "video.mp4", "-vn",
                     "-acodec", "libmp3lame", "-q:a", "2", "extracted_audio.mp3", "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                if not os.path.exists("extracted_audio.mp3"):
+                    raise Exception("Failed to extract audio from video.")
                 
                 # Step 4: Transcribe with Groq Whisper
                 status.text("Transcribing original audio...")
@@ -325,7 +352,6 @@ Rules:
                 status.text("Generating voiceover...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
-                # Determine fallback voice
                 if "fr" in voice_code:
                     fallback = "fr-FR-HenriNeural"
                 elif "es" in voice_code:
@@ -338,6 +364,8 @@ Rules:
                 tts_success = asyncio.run(generate_tts(localized_text, output_audio, voice_code, fallback))
                 if not tts_success:
                     raise Exception("TTS generation failed.")
+                if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
+                    raise Exception("TTS produced an empty file.")
                 audio_duration = get_duration(output_audio)
                 
                 # Step 7: Synchronize video and audio durations
@@ -373,6 +401,9 @@ Rules:
                 if result.returncode != 0:
                     st.error(f"FFmpeg error: {result.stderr}")
                     raise Exception("Mixing failed.")
+                
+                if not os.path.exists(final_output) or os.path.getsize(final_output) == 0:
+                    raise Exception("Final output file is empty.")
                 
                 # Cleanup temp files
                 for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3"]:
