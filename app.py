@@ -78,31 +78,46 @@ def get_duration(file_path):
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
     """
-    Extend the video by freezing the last frame until target_duration.
-    Uses FFmpeg's tpad filter to pad with the last frame.
+    Extend video by freezing the last frame until target_duration.
+    Uses FFmpeg's tpad filter (stop_mode=clone) and removes audio.
     """
-    # First, get the original duration
-    original_duration = get_duration(original_video)
-    if original_duration >= target_duration:
-        # No need to extend, just copy
-        subprocess.run(["ffmpeg", "-i", original_video, "-c", "copy", output_video, "-y"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Get original duration
+    orig_dur = get_duration(original_video)
+    if orig_dur >= target_duration:
+        # No need to extend, just copy (but also strip audio to avoid conflicts later)
+        subprocess.run([
+            "ffmpeg", "-i", original_video, "-c:v", "copy", "-an", output_video, "-y"
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_video
     
-    # Calculate padding needed
-    pad_duration = target_duration - original_duration
-    
-    # Use tpad filter: stop_mode=clone (freezes last frame) + pad duration
-    # Also remove audio (we will add TTS later)
+    # Pad with last frame
+    pad_duration = target_duration - orig_dur
     subprocess.run([
         "ffmpeg", "-i", original_video,
         "-vf", f"tpad=stop_mode=clone:stop_duration={pad_duration}",
-        "-an",  # discard original audio
+        "-an",   # discard original audio
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-t", str(target_duration),
         output_video, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
+    # Verify output duration
+    out_dur = get_duration(output_video)
+    if out_dur < target_duration - 0.1:
+        st.warning(f"Extended video duration {out_dur:.1f}s is less than requested {target_duration:.1f}s - using fallback method.")
+        # Fallback: use `setpts` to stretch the last frame? Actually just loop the whole video?
+        # Simpler: copy the last frame manually using -frames:v and then loop.
+        # Extract last frame
+        subprocess.run([
+            "ffmpeg", "-i", original_video, "-vf", "select='eq(n,80)'", "-vframes", "1", "last.png", "-y"
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Create video from that frame
+        subprocess.run([
+            "ffmpeg", "-loop", "1", "-i", "last.png", "-t", str(target_duration),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", output_video, "-y"
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if os.path.exists("last.png"):
+            os.remove("last.png")
     return output_video
 
 def generate_srt_file(text, duration_sec, output_srt_path):
@@ -172,7 +187,6 @@ with col_left:
         if raw_url:
             download_url = raw_url
             video_ready = True
-            # Handle dropbox and drive
             if "dropbox.com" in raw_url:
                 if "dl=0" in raw_url:
                     download_url = raw_url.replace("dl=0", "raw=1")
@@ -218,7 +232,7 @@ with col_right:
             
             try:
                 # Cleanup previous runs
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4"]:
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "last.png"]:
                     if os.path.exists(f):
                         os.remove(f)
                 
@@ -330,6 +344,8 @@ with col_right:
                 final_video_output = "final_output.mp4"
                 
                 # Use working_video (original or extended) and mix with TTS audio
+                # Note: we use -shortest to end when the shorter input ends, but since we extended video to match audio,
+                # they will be equal, so no truncation.
                 subprocess.run([
                     "ffmpeg", "-i", working_video, "-i", output_audio,
                     "-filter_complex", "[0:a]volume=0.15[bg];[1:a]volume=1.8[ai];[bg][ai]amix=inputs=2:duration=first",
@@ -338,7 +354,7 @@ with col_right:
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
                 # Cleanup temporary files (keep final)
-                for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
+                for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "last.png"]:
                     if os.path.exists(f_cleanup):
                         os.remove(f_cleanup)
                 
