@@ -69,7 +69,10 @@ def get_duration(file_path):
         return 0.0
 
 def pad_audio_with_silence(input_audio, output_audio, target_duration):
-    """Robust padding: generate silence and concatenate."""
+    """
+    Robust padding: convert both original and silence to WAV (48kHz stereo),
+    then concatenate. Works with any input format.
+    """
     current = get_duration(input_audio)
     if current >= target_duration - 0.1:
         subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
@@ -77,32 +80,34 @@ def pad_audio_with_silence(input_audio, output_audio, target_duration):
         return output_audio
     
     pad_duration = target_duration - current
-    silence_file = "silence_pad.wav"
-    # Generate silence
+    temp_original = "temp_original.wav"
+    temp_silence = "temp_silence.wav"
+    
+    # Convert original audio to WAV (48kHz, stereo)
+    subprocess.run([
+        "ffmpeg", "-i", input_audio, "-ar", "48000", "-ac", "2", "-f", "wav", temp_original, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    # Generate silence as WAV (48kHz, stereo)
     subprocess.run([
         "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
-        silence_file, "-y"
+        "-ar", "48000", "-ac", "2", "-f", "wav", temp_silence, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    if not os.path.exists(silence_file) or os.path.getsize(silence_file) == 0:
-        raise Exception("Failed to generate silence file.")
-    
-    # Concatenate original audio + silence
+    # Concatenate
     subprocess.run([
-        "ffmpeg", "-i", input_audio, "-i", silence_file,
+        "ffmpeg", "-i", temp_original, "-i", temp_silence,
         "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
-        "-c:a", "aac", "-b:a", "128k",
-        output_audio, "-y"
+        "-c:a", "aac", "-b:a", "128k", output_audio, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    # Cleanup
-    if os.path.exists(silence_file):
-        os.remove(silence_file)
+    # Cleanup temp files
+    for f in [temp_original, temp_silence]:
+        if os.path.exists(f):
+            os.remove(f)
     
-    # Verify output
     if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
         raise Exception("Padding produced empty file.")
-    
     return output_audio
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
@@ -183,7 +188,6 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
 # ================== Download Video ==================
 def download_video(url, output_path):
     """Download video using yt-dlp if available, else direct download."""
-    # Try direct download first for raw MP4 links
     if url.endswith('.mp4') or url.endswith('.mov') or url.endswith('.mkv'):
         try:
             r = requests.get(url, stream=True, timeout=30)
@@ -195,7 +199,6 @@ def download_video(url, output_path):
         except Exception as e:
             st.warning(f"Direct download failed: {e}")
     
-    # Use yt-dlp for YouTube, Vimeo, etc.
     if YT_DLP_AVAILABLE:
         try:
             ydl_opts = {
@@ -211,7 +214,7 @@ def download_video(url, output_path):
             st.error(f"yt-dlp failed: {e}")
             return False
     else:
-        st.error("yt-dlp is not installed and direct download failed. Please install yt-dlp or use a direct MP4 link.")
+        st.error("yt-dlp not installed and direct download failed.")
         return False
 
 # ================== Sidebar ==================
@@ -286,7 +289,7 @@ with col_right:
             
             try:
                 # Cleanup old files
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "padded_audio.mp3", "extended_video.mp4", "silence_pad.wav"]:
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "padded_audio.mp3", "extended_video.mp4", "temp_original.wav", "temp_silence.wav"]:
                     if os.path.exists(f):
                         os.remove(f)
                 
@@ -372,7 +375,7 @@ Rules:
                 localized_text = clean_repetitions(localized_text)
                 st.info(f"Localized script: \"{localized_text[:300]}...\" (truncated)")
                 
-                # Step 6: Generate TTS (using asyncio.run)
+                # Step 6: Generate TTS
                 status.text("Generating voiceover...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
@@ -406,7 +409,7 @@ Rules:
                     working_video = "video.mp4"
                     final_duration = video_duration
                 
-                # Step 8: Generate subtitles for final duration
+                # Step 8: Generate subtitles
                 generate_srt_file(localized_text, final_duration, "subtitles.srt")
                 
                 # Step 9: Mix audio and burn subtitles
@@ -430,7 +433,7 @@ Rules:
                     raise Exception("Final output file is empty.")
                 
                 # Cleanup temp files
-                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "silence_pad.wav"]:
+                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "temp_original.wav", "temp_silence.wav"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
                 
