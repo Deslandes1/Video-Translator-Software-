@@ -3,6 +3,7 @@ import os
 import subprocess
 import requests
 import asyncio
+import re
 from groq import Groq
 import edge_tts
 
@@ -76,7 +77,6 @@ def get_duration(file_path):
         return 0.0
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
-    """Extend video by freezing the last frame; pads audio with silence."""
     orig_dur = get_duration(original_video)
     if orig_dur >= target_duration:
         subprocess.run([
@@ -121,6 +121,24 @@ def generate_srt_file(text, duration_sec, output_srt_path):
             f.write(f"{idx + 1}\n")
             f.write(f"{srt_start} --> {srt_end}\n")
             f.write(f"{caption_text}\n\n")
+
+def clean_repetitions(text):
+    """Remove repeated identical phrases (like 'al-musta'khdim' repeated many times)."""
+    # If text is too long and has a repeating pattern, truncate after 200 words
+    words = text.split()
+    if len(words) > 400:
+        # Check for repetitive word at the end
+        last_word = words[-1] if words else ""
+        # If the same word appears more than 5 times in the last 10 words, truncate
+        if words[-10:] and len(set(words[-10:])) < 3:
+            # Find first occurrence of the repetition
+            unique_phrases = []
+            for w in words:
+                if w not in unique_phrases or len(unique_phrases) > 50:
+                    break
+                unique_phrases.append(w)
+            return " ".join(unique_phrases)
+    return text
 
 # 4. Sidebar with expanded language options
 st.sidebar.markdown("## GlobalInternet.py")
@@ -255,20 +273,22 @@ with col_right:
                     )
                 base_text = str(raw_translation).strip()
                 
-                # STEP 4b: Localization - updated for all languages
+                # STEP 4b: Enhanced Localization for each language
                 status_text.text("Refining text into natural native phrasing...")
-                if "fr-FR" in voice_code:
+                
+                # Language-specific instructions
+                if "zh-CN" in voice_code:
+                    target_lang_instruction = "natural, idiomatic, flowing Mandarin Chinese (Simplified). Output in Simplified Chinese characters (汉字), no pinyin, no transliteration. Keep the tone conversational and natural."
+                elif "ar-SA" in voice_code:
+                    target_lang_instruction = "natural, idiomatic, flowing Modern Standard Arabic. Output in Arabic script (العربية), no transliteration. Use correct Arabic grammar and avoid repetition. Keep the text concise (maximum 200 words)."
+                elif "pt-BR" in voice_code:
+                    target_lang_instruction = "natural, idiomatic, flowing Brazilian Portuguese. Output in Portuguese, avoid English words. Keep the text natural for voiceover."
+                elif "fr-FR" in voice_code:
                     target_lang_instruction = "natural, idiomatic, flowing French as spoken by a native Parisian male speaker"
                 elif "es-ES" in voice_code:
                     target_lang_instruction = "natural, idiomatic, flowing Spanish as spoken by a native male speaker"
                 elif "ht-HT" in voice_code:
                     target_lang_instruction = "natural, idiomatic, flowing Haitian Creole (Kreyòl Ayisyen) as spoken by a native speaker"
-                elif "zh-CN" in voice_code:
-                    target_lang_instruction = "natural, idiomatic, flowing Mandarin Chinese (Simplified) as spoken by a native speaker"
-                elif "ar-SA" in voice_code:
-                    target_lang_instruction = "natural, idiomatic, flowing Modern Standard Arabic as spoken by a native speaker"
-                elif "pt-BR" in voice_code:
-                    target_lang_instruction = "natural, idiomatic, flowing Brazilian Portuguese as spoken by a native speaker"
                 else:
                     target_lang_instruction = "natural, idiomatic conversational US English"
 
@@ -278,26 +298,37 @@ with col_right:
                 Rules:
                 - Maintain exact original core meaning.
                 - Eliminate stiff grammar, literal translations, awkward structures.
-                - Optimize for spoken vocal delivery.
-                - Return ONLY the polished text. No extras.
+                - Optimize for spoken vocal delivery (smooth, natural, no repetition).
+                - Do NOT repeat words or phrases unnecessarily.
+                - Keep the output length reasonable (max 250 words).
+                - Return ONLY the polished text. No extras, no explanations.
+                - IMPORTANT: For Arabic, output in Arabic script (عربي). For Chinese, output in Simplified Chinese characters. For Portuguese, output in Portuguese.
                 """
+                
+                # Increase max_tokens and add repetition_penalty
                 localization_response = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": base_text}
                     ],
-                    temperature=0.3
+                    temperature=0.2,           # lower temperature for more deterministic output
+                    max_tokens=800,            # enough for long translations
+                    frequency_penalty=0.5,     # penalize repetition
+                    presence_penalty=0.5,
                 )
                 detected_text = localization_response.choices[0].message.content.strip()
-                st.info(f"Polished Native Expression Map: \"{detected_text}\"")
+                
+                # Post-process to remove any potential repetitions
+                detected_text = clean_repetitions(detected_text)
+                
+                st.info(f"Polished Native Expression Map: \"{detected_text[:500]}...\" (truncated)")
                 
                 # STEP 5: Generate TTS with appropriate fallback
                 status_text.text("Synthesizing true native voice frequencies...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
                 
-                # Define fallback voices
                 if "fr" in voice_code:
                     fallback_voice = "fr-FR-HenriNeural"
                 elif "es" in voice_code:
@@ -305,7 +336,7 @@ with col_right:
                 elif "ht" in voice_code:
                     fallback_voice = "fr-FR-HenriNeural"
                 elif "zh" in voice_code:
-                    fallback_voice = "en-US-ChristopherNeural"  # fallback to English
+                    fallback_voice = "en-US-ChristopherNeural"
                 elif "ar" in voice_code:
                     fallback_voice = "en-US-ChristopherNeural"
                 elif "pt" in voice_code:
