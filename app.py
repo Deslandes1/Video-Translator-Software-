@@ -68,7 +68,6 @@ async def generate_male_voice(text, output_path, voice_name, fallback_voice="fr-
             return False
 
 def get_duration(file_path):
-    """Return duration in seconds using ffprobe."""
     cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
@@ -77,47 +76,25 @@ def get_duration(file_path):
         return 0.0
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
-    """
-    Extend video by freezing the last frame until target_duration.
-    Uses FFmpeg's tpad filter (stop_mode=clone) and removes audio.
-    """
-    # Get original duration
+    """Extend video by freezing the last frame; keeps original audio (padded with silence)."""
     orig_dur = get_duration(original_video)
     if orig_dur >= target_duration:
-        # No need to extend, just copy (but also strip audio to avoid conflicts later)
         subprocess.run([
-            "ffmpeg", "-i", original_video, "-c:v", "copy", "-an", output_video, "-y"
+            "ffmpeg", "-i", original_video, "-c:v", "copy", "-c:a", "copy", output_video, "-y"
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_video
     
-    # Pad with last frame
     pad_duration = target_duration - orig_dur
+    # Use tpad for video and apad for audio (pad with silence)
     subprocess.run([
         "ffmpeg", "-i", original_video,
         "-vf", f"tpad=stop_mode=clone:stop_duration={pad_duration}",
-        "-an",   # discard original audio
+        "-af", f"apad=pad_dur={pad_duration}",
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k",
         "-t", str(target_duration),
         output_video, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    
-    # Verify output duration
-    out_dur = get_duration(output_video)
-    if out_dur < target_duration - 0.1:
-        st.warning(f"Extended video duration {out_dur:.1f}s is less than requested {target_duration:.1f}s - using fallback method.")
-        # Fallback: use `setpts` to stretch the last frame? Actually just loop the whole video?
-        # Simpler: copy the last frame manually using -frames:v and then loop.
-        # Extract last frame
-        subprocess.run([
-            "ffmpeg", "-i", original_video, "-vf", "select='eq(n,80)'", "-vframes", "1", "last.png", "-y"
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # Create video from that frame
-        subprocess.run([
-            "ffmpeg", "-loop", "1", "-i", "last.png", "-t", str(target_duration),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", output_video, "-y"
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if os.path.exists("last.png"):
-            os.remove("last.png")
     return output_video
 
 def generate_srt_file(text, duration_sec, output_srt_path):
@@ -231,12 +208,12 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                # Cleanup previous runs
+                # Cleanup
                 for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "last.png"]:
                     if os.path.exists(f):
                         os.remove(f)
                 
-                # STEP 1: Download / Upload video
+                # STEP 1: Download video
                 if is_link:
                     status_text.text("Streaming original file...")
                     progress_bar.progress(15)
@@ -251,12 +228,12 @@ with col_right:
                     with open("video.mp4", "wb") as f:
                         f.write(uploaded_file.getbuffer())
                 
-                # STEP 2: Get original video duration
+                # STEP 2: Get video duration
                 video_duration = get_duration("video.mp4")
                 if video_duration <= 0:
                     video_duration = 30.0
                 
-                # STEP 3: Extract audio
+                # STEP 3: Extract audio for transcription
                 status_text.text("Extracting original audio...")
                 progress_bar.progress(30)
                 subprocess.run([
@@ -329,8 +306,7 @@ with col_right:
                 audio_duration = get_duration(output_audio)
                 if audio_duration > video_duration:
                     st.warning(f"Voiceover duration ({audio_duration:.1f}s) longer than original video ({video_duration:.1f}s). Extending video with frozen last frame.")
-                    extended_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
-                    working_video = extended_video
+                    working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
                 else:
                     working_video = "video.mp4"
                 
@@ -343,15 +319,23 @@ with col_right:
                 progress_bar.progress(85)
                 final_video_output = "final_output.mp4"
                 
-                # Use working_video (original or extended) and mix with TTS audio
-                # Note: we use -shortest to end when the shorter input ends, but since we extended video to match audio,
-                # they will be equal, so no truncation.
-                subprocess.run([
+                # FFmpeg command with better error capture
+                cmd = [
                     "ffmpeg", "-i", working_video, "-i", output_audio,
-                    "-filter_complex", "[0:a]volume=0.15[bg];[1:a]volume=1.8[ai];[bg][ai]amix=inputs=2:duration=first",
-                    "-vf", "subtitles=subtitles.srt", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-shortest", final_video_output, "-y"
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    "-filter_complex", 
+                    "[0:a]volume=0.2[a1];[1:a]volume=1.5[a2];[a1][a2]amix=inputs=2:duration=longest[a]",
+                    "-map", "0:v", "-map", "[a]",
+                    "-vf", "subtitles=subtitles.srt",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-shortest",
+                    final_video_output, "-y"
+                ]
+                
+                # Run with output capture for debugging
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    st.error(f"FFmpeg error: {result.stderr}")
+                    raise Exception("FFmpeg mixing failed.")
                 
                 # Cleanup temporary files (keep final)
                 for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "last.png"]:
