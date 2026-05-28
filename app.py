@@ -69,7 +69,7 @@ def get_duration(file_path):
         return 0.0
 
 def pad_audio_with_silence(input_audio, output_audio, target_duration):
-    """Append silence at the end of audio to exactly reach target_duration."""
+    """Append silence at the end of audio to exactly reach target_duration using apad filter."""
     current = get_duration(input_audio)
     if current >= target_duration - 0.1:
         subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
@@ -78,8 +78,7 @@ def pad_audio_with_silence(input_audio, output_audio, target_duration):
     pad_duration = target_duration - current
     subprocess.run([
         "ffmpeg", "-i", input_audio,
-        "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
-        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
+        "-af", f"apad=pad_dur={pad_duration}",
         "-c:a", "aac", "-b:a", "128k",
         output_audio, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -140,7 +139,7 @@ def clean_repetitions(text):
             return " ".join(unique)
     return text
 
-# ================== Async TTS (must be called with asyncio.run) ==================
+# ================== Async TTS ==================
 async def generate_tts(text, output_path, voice_name, fallback_voice):
     try:
         communicate = edge_tts.Communicate(text, voice_name)
@@ -160,7 +159,7 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
             st.error(f"Fallback also failed: {e2}")
             return False
 
-# ================== Download Video Function ==================
+# ================== Download Video ==================
 def download_video(url, output_path):
     """Download video using yt-dlp if available, else direct download."""
     # Try direct download first for raw MP4 links
@@ -174,7 +173,6 @@ def download_video(url, output_path):
             return True
         except Exception as e:
             st.warning(f"Direct download failed: {e}")
-            # Fall through to yt-dlp if available
     
     # Use yt-dlp for YouTube, Vimeo, etc.
     if YT_DLP_AVAILABLE:
@@ -386,6 +384,10 @@ Rules:
                     working_audio = pad_audio_with_silence(output_audio, "padded_audio.mp3", video_duration)
                     working_video = "video.mp4"
                     final_duration = video_duration
+                
+                # Verify padded audio was created successfully
+                if not os.path.exists(working_audio) or os.path.getsize(working_audio) == 0:
+                    raise Exception("Audio padding failed – output file is missing or empty.")
                 
                 # Step 8: Generate subtitles for final duration
                 generate_srt_file(localized_text, final_duration, "subtitles.srt")
