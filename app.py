@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 2. Premium Styling Ingestion
+# 2. Premium Styling
 st.markdown(
     """
     <style>
@@ -47,13 +47,13 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 3. Async Helper for True Native Male Voices (with fallback)
+# 3. Async TTS with fallback
 async def generate_male_voice(text, output_path, voice_name, fallback_voice="fr-FR-HenriNeural"):
     try:
         communicate = edge_tts.Communicate(text, voice_name)
         await communicate.save(output_path)
         if os.path.getsize(output_path) == 0:
-            raise Exception("Generated audio file is empty")
+            raise Exception("Empty audio file")
         return True
     except Exception as e:
         st.warning(f"Primary voice '{voice_name}' failed: {str(e)}. Falling back to {fallback_voice}.")
@@ -61,18 +61,49 @@ async def generate_male_voice(text, output_path, voice_name, fallback_voice="fr-
             communicate = edge_tts.Communicate(text, fallback_voice)
             await communicate.save(output_path)
             if os.path.getsize(output_path) == 0:
-                raise Exception("Fallback audio also empty")
+                raise Exception("Fallback audio empty")
             return True
         except Exception as e2:
             st.error(f"Fallback voice also failed: {str(e2)}")
             return False
 
-# Helper to break flat text into artificial SRT timelines
+def get_duration(file_path):
+    """Return duration in seconds using ffprobe."""
+    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        return float(result.stdout.decode('utf-8').strip())
+    except:
+        return 0.0
+
+def extend_video_with_last_frame(original_video, output_video, target_duration):
+    """Create a new video by freezing the last frame of original_video until target_duration."""
+    # Use FFmpeg: extract last frame and loop it
+    temp_last_frame = "last_frame.png"
+    # Extract last frame
+    subprocess.run([
+        "ffmpeg", "-i", original_video, "-vf", "select='eq(n,80)'",  # crude but works, better use:
+        "-vframes", "1", temp_last_frame, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Better: use `ffmpeg -i original.mp4 -vframes 1 -vf "select=gte(n\,frames-1)"` but simpler: just use scale
+    subprocess.run([
+        "ffmpeg", "-i", original_video, "-frames:v", "1", "-f", "image2", temp_last_frame, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Generate extended video from that frame
+    subprocess.run([
+        "ffmpeg", "-loop", "1", "-i", temp_last_frame, "-t", str(target_duration),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "extended_video.mp4", "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Extract original audio (none, but keep silent) - we will mix with TTS later
+    # Cleanup
+    if os.path.exists(temp_last_frame):
+        os.remove(temp_last_frame)
+    return "extended_video.mp4"
+
 def generate_srt_file(text, duration_sec, output_srt_path):
     words = text.split()
     if not words:
         words = ["Processing..."]
-    
     chunk_size = 6
     chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
     num_chunks = len(chunks)
@@ -82,18 +113,15 @@ def generate_srt_file(text, duration_sec, output_srt_path):
         for idx, chunk in enumerate(chunks):
             start_time = idx * chunk_duration
             end_time = (idx + 1) * chunk_duration
-            
             def format_srt_time(seconds):
                 hrs = int(seconds // 3600)
                 mins = int((seconds % 3600) // 60)
                 secs = int(seconds % 60)
                 mils = int((seconds % 1) * 1000)
                 return f"{hrs:02d}:{mins:02d}:{secs:02d},{mils:03d}"
-            
             srt_start = format_srt_time(start_time)
             srt_end = format_srt_time(end_time)
             caption_text = " ".join(chunk)
-            
             f.write(f"{idx + 1}\n")
             f.write(f"{srt_start} --> {srt_end}\n")
             f.write(f"{caption_text}\n\n")
@@ -114,7 +142,7 @@ selected_voice_label = st.sidebar.selectbox("Select Native Overdub Language Laye
 voice_code = voice_options[selected_voice_label]
 
 st.title("AI Video Voice Translation Engine")
-st.markdown("### Sovereign On-Demand Multimedia Linguistic Overdubbing Platform")
+st.markdown("### On-Demand Multimedia Linguistic Overdubbing Platform")
 st.markdown("---")
 
 col_left, col_right = st.columns([2, 1.8])
@@ -139,16 +167,22 @@ with col_left:
         if raw_url:
             download_url = raw_url
             video_ready = True
+            # Handle dropbox and drive
             if "dropbox.com" in raw_url:
-                if "dl=0" in raw_url: download_url = raw_url.replace("dl=0", "raw=1")
-                elif "dl=1" in raw_url: download_url = raw_url.replace("dl=1", "raw=1")
+                if "dl=0" in raw_url:
+                    download_url = raw_url.replace("dl=0", "raw=1")
+                elif "dl=1" in raw_url:
+                    download_url = raw_url.replace("dl=1", "raw=1")
                 elif "raw=1" not in raw_url:
                     download_url = f"{raw_url}&raw=1" if "?" in raw_url else f"{raw_url}?raw=1"
             elif "drive.google.com" in raw_url:
                 file_id = ""
-                if "/file/d/" in raw_url: file_id = raw_url.split("/file/d/")[1].split("/")[0]
-                elif "id=" in raw_url: file_id = raw_url.split("id=")[1].split("&")[0]
-                if file_id: download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+                if "/file/d/" in raw_url:
+                    file_id = raw_url.split("/file/d/")[1].split("/")[0]
+                elif "id=" in raw_url:
+                    file_id = raw_url.split("id=")[1].split("&")[0]
+                if file_id:
+                    download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
             try:
                 st.video(raw_url)
             except Exception:
@@ -178,11 +212,12 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                # Cleanup
-                for f_tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4"]:
-                    if os.path.exists(f_tmp): os.remove(f_tmp)
+                # Cleanup previous runs
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4"]:
+                    if os.path.exists(f):
+                        os.remove(f)
                 
-                # STEP 1: Download video
+                # STEP 1: Download / Upload video
                 if is_link:
                     status_text.text("Streaming original file...")
                     progress_bar.progress(15)
@@ -197,12 +232,9 @@ with col_right:
                     with open("video.mp4", "wb") as f:
                         f.write(uploaded_file.getbuffer())
                 
-                # STEP 2: Get video duration
-                duration_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", "video.mp4"]
-                duration_result = subprocess.run(duration_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                try:
-                    video_duration = float(duration_result.stdout.decode('utf-8').strip())
-                except:
+                # STEP 2: Get original video duration
+                video_duration = get_duration("video.mp4")
+                if video_duration <= 0:
                     video_duration = 30.0
                 
                 # STEP 3: Extract audio
@@ -213,7 +245,7 @@ with col_right:
                     "-acodec", "libmp3lame", "-q:a", "2", "extracted_audio.mp3", "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # STEP 4: Transcribe & translate with Groq
+                # STEP 4: Groq Whisper Translation
                 status_text.text("AI Engine reading language tracks...")
                 progress_bar.progress(50)
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -237,13 +269,13 @@ with col_right:
                     target_lang_instruction = "natural, idiomatic conversational US English"
 
                 system_prompt = f"""
-                You are an expert voiceover localizer. Your job is to take raw, literal text translations and rewrite them into fluid, high-impact verbal prose.
-                Target Style: Rewrite the text into {target_lang_instruction}.
+                You are an expert voiceover localizer. Take the raw translated text and rewrite it into fluid, high-impact verbal prose.
+                Target Style: {target_lang_instruction}
                 Rules:
-                - Maintain the exact original core meaning.
-                - Eliminate stiff textbook grammar, literal translations, and awkward structures.
-                - Optimize for spoken vocal delivery (make it sound smooth when read aloud).
-                - Return ONLY the final polished text. Do not include introductions, explanations, or quotes.
+                - Maintain exact original core meaning.
+                - Eliminate stiff grammar, literal translations, awkward structures.
+                - Optimize for spoken vocal delivery.
+                - Return ONLY the polished text. No extras.
                 """
                 localization_response = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
@@ -256,7 +288,7 @@ with col_right:
                 detected_text = localization_response.choices[0].message.content.strip()
                 st.info(f"Polished Native Expression Map: \"{detected_text}\"")
                 
-                # STEP 5: TTS with fallback
+                # STEP 5: Generate TTS
                 status_text.text("Synthesizing true native voice frequencies...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
@@ -269,28 +301,41 @@ with col_right:
                 else:
                     fallback_voice = "en-US-ChristopherNeural"
                 
-                success = asyncio.run(generate_male_voice(detected_text, output_audio, voice_code, fallback_voice))
-                if not success:
-                    raise Exception("TTS failed for both primary and fallback voices.")
+                tts_success = asyncio.run(generate_male_voice(detected_text, output_audio, voice_code, fallback_voice))
+                if not tts_success:
+                    raise Exception("TTS generation failed.")
                 
-                # STEP 6: Generate captions
-                status_text.text("Compiling caption tracks...")
-                generate_srt_file(detected_text, video_duration, "subtitles.srt")
+                # STEP 6: Check durations and extend video if needed
+                status_text.text("Adjusting video length to match voiceover...")
+                audio_duration = get_duration(output_audio)
+                if audio_duration > video_duration:
+                    st.warning(f"Voiceover duration ({audio_duration:.1f}s) longer than original video ({video_duration:.1f}s). Extending video with frozen last frame.")
+                    extended_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
+                    working_video = extended_video
+                else:
+                    working_video = "video.mp4"
                 
-                # STEP 7: Mix audio & burn subtitles
+                # STEP 7: Generate subtitles (use the longer duration)
+                final_duration = max(video_duration, audio_duration)
+                generate_srt_file(detected_text, final_duration, "subtitles.srt")
+                
+                # STEP 8: Mix audio and burn subtitles
                 status_text.text("Mixing audio layers and burning captions...")
                 progress_bar.progress(85)
                 final_video_output = "final_output.mp4"
+                
+                # FFmpeg command: use the working_video (original or extended)
                 subprocess.run([
-                    "ffmpeg", "-i", "video.mp4", "-i", "translated_voice.mp3",
+                    "ffmpeg", "-i", working_video, "-i", output_audio,
                     "-filter_complex", "[0:a]volume=0.15[bg];[1:a]volume=1.8[ai];[bg][ai]amix=inputs=2:duration=first",
                     "-vf", "subtitles=subtitles.srt", "-c:v", "libx264", "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-shortest", final_video_output, "-y"
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # Cleanup
-                for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt"]:
-                    if os.path.exists(f_cleanup): os.remove(f_cleanup)
+                # Cleanup temporary files (keep final)
+                for f_cleanup in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
+                    if os.path.exists(f_cleanup):
+                        os.remove(f_cleanup)
                 
                 progress_bar.progress(100)
                 status_text.text("All Systems Harmonized! Video Production Compiled.")
