@@ -120,7 +120,7 @@ def clean_repetitions(text):
         return " ".join(unique)
     return text
 
-# ================== FAST DOWNLOAD WITH FALLBACK ==================
+# ================== FAST DOWNLOAD WITH FALLBACK & DEBUGGING ==================
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -134,11 +134,25 @@ def is_valid_video(file_path):
         return False
     cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type", "-of", "default=nokey=1:noprint_wrappers=1", file_path]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return result.returncode == 0 and result.stdout.decode().strip() == "video"
+    if result.returncode != 0:
+        st.warning(f"ffprobe error: {result.stderr.decode()}")
+        return False
+    output = result.stdout.decode().strip()
+    return output == "video"
+
+def file_info(path):
+    """Return string with file size and format for debugging."""
+    if not os.path.exists(path):
+        return "does not exist"
+    size = os.path.getsize(path)
+    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=format_name", "-of", "default=noprint_wrappers=1:nokey=1", path]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    fmt = result.stdout.decode().strip() if result.returncode == 0 else "unknown"
+    return f"exists, size={size} bytes, format={fmt}"
 
 def download_video(url, output_path):
-    """Try aria2c first (fast for direct links), then yt-dlp (handles YouTube), finally direct requests."""
-    # 1) Try aria2c (parallel, but only works for direct media URLs)
+    """Try aria2c, then yt-dlp, then direct HTTP with detailed debugging."""
+    # 1) Try aria2c (fast parallel, works for direct media URLs)
     if is_aria2_available():
         st.info("Trying aria2c with 16 parallel connections ...")
         cmd = [
@@ -147,22 +161,27 @@ def download_video(url, output_path):
         ]
         try:
             subprocess.run(cmd, check=True, timeout=600)
+            st.write(f"aria2c result: {file_info(output_path)}")
             if is_valid_video(output_path):
                 st.success("Downloaded with aria2c – valid video file.")
                 return True
             else:
-                st.warning("aria2c downloaded a file, but it's not a valid video. Falling back to yt-dlp.")
+                st.warning(f"aria2c downloaded file but not a valid video. Info: {file_info(output_path)}")
         except Exception as e:
             st.warning(f"aria2c failed: {e}")
 
     # 2) Use yt-dlp (handles YouTube, Vimeo, etc.)
     if YT_DLP_AVAILABLE:
         st.info("Using yt-dlp with parallel fragments (best for YouTube, Vimeo) ...")
+        # Ensure output_path has .mp4 extension
+        if not output_path.endswith('.mp4'):
+            output_path = output_path + '.mp4'
         ydl_opts = {
             'outtmpl': output_path,
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'quiet': True,
-            'no_warnings': True,
+            'merge_output_format': 'mp4',
+            'quiet': False,   # show output for debugging
+            'no_warnings': False,
             'concurrent_fragment_downloads': 8,
             'retries': 10,
             'fragment_retries': 10,
@@ -170,23 +189,41 @@ def download_video(url, output_path):
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+                info = ydl.extract_info(url, download=True)
+                actual_file = ydl.prepare_filename(info)
+                st.write(f"yt-dlp downloaded file: {actual_file}")
+                if os.path.exists(actual_file) and actual_file != output_path:
+                    # Rename to expected output_path if needed
+                    os.rename(actual_file, output_path)
+                    st.write(f"Renamed to {output_path}")
+            st.write(f"yt-dlp result: {file_info(output_path)}")
             if is_valid_video(output_path):
                 st.success("Downloaded with yt-dlp – valid video file.")
                 return True
             else:
-                st.error("yt-dlp produced an invalid video file.")
+                st.error(f"yt-dlp produced an invalid video file. Info: {file_info(output_path)}")
+                # Check for HTML error page
+                with open(output_path, 'rb') as f:
+                    head = f.read(200)
+                    if b'<html' in head or b'<!DOCTYPE' in head:
+                        st.error("Downloaded file appears to be an HTML page (not video). URL may be invalid or require authentication.")
         except Exception as e:
-            st.warning(f"yt-dlp failed: {e}")
+            st.warning(f"yt-dlp failed with exception: {e}")
 
-    # 3) Final fallback: direct HTTP (only for direct MP4 links)
+    # 3) Final fallback: direct HTTP
     st.info("Trying direct HTTP download ...")
     try:
-        r = requests.get(url, stream=True, timeout=60)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        r = requests.get(url, stream=True, timeout=60, headers=headers)
         r.raise_for_status()
+        content_type = r.headers.get('content-type', '')
+        if 'text/html' in content_type:
+            st.error("Direct HTTP returned HTML instead of video. URL is not a direct media link.")
+            return False
         with open(output_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192 * 16):
                 f.write(chunk)
+        st.write(f"Direct HTTP result: {file_info(output_path)}")
         if is_valid_video(output_path):
             st.success("Downloaded via direct HTTP – valid video file.")
             return True
@@ -293,7 +330,7 @@ with col_right:
                     if os.path.exists(f):
                         os.remove(f)
 
-                # Step 1: Get video (FAST DOWNLOAD NOW)
+                # Step 1: Get video (fast download with fallback)
                 status.text("Downloading / reading video (parallel download if available)...")
                 progress_bar.progress(10)
                 if uploaded_file:
