@@ -70,8 +70,7 @@ def get_duration(file_path):
 def pad_audio_with_silence_reliable(input_audio, output_audio, target_duration):
     """
     Pad audio with silence to exactly target_duration.
-    Uses a two-step process: convert to AAC in MP4 container, then apad.
-    If that fails, uses concat demuxer.
+    Converts to WAV, generates silence, concatenates using filter_complex.
     """
     current = get_duration(input_audio)
     if abs(current - target_duration) < 0.1:
@@ -79,58 +78,39 @@ def pad_audio_with_silence_reliable(input_audio, output_audio, target_duration):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_audio
 
-    # Step 1: Convert to consistent AAC in MP4
-    temp_converted = "temp_pad_convert.mp4"
+    # Convert input to WAV
+    temp_orig = "temp_orig_pad.wav"
     subprocess.run([
         "ffmpeg", "-i", input_audio,
-        "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
-        "-f", "mp4", temp_converted, "-y"
+        "-ar", "48000", "-ac", "2", "-f", "wav",
+        temp_orig, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Step 2: Apply apad=whole_dur
+    # Generate silence of needed duration (as WAV)
+    pad_duration = target_duration - current
+    temp_silence = "temp_silence_pad.wav"
     subprocess.run([
-        "ffmpeg", "-i", temp_converted,
-        "-af", f"apad=whole_dur={target_duration}",
+        "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
+        "-ar", "48000", "-ac", "2", "-f", "wav",
+        temp_silence, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Concatenate using filter_complex
+    subprocess.run([
+        "ffmpeg", "-i", temp_orig, "-i", temp_silence,
+        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
         "-c:a", "aac", "-b:a", "128k",
         output_audio, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    os.remove(temp_converted)
+    # Cleanup
+    for f in [temp_orig, temp_silence]:
+        if os.path.exists(f):
+            os.remove(f)
 
     if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-        # Fallback: concat demuxer
-        pad_duration = target_duration - current
-        temp_orig = "temp_orig_pad.mp4"
-        temp_silence = "temp_silence_pad.mp4"
+        raise Exception("Padding failed after concat filter")
 
-        subprocess.run([
-            "ffmpeg", "-i", input_audio,
-            "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
-            "-f", "mp4", temp_orig, "-y"
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-        subprocess.run([
-            "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
-            "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
-            temp_silence, "-y"
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-        concat_list = "concat_list_pad.txt"
-        with open(concat_list, "w") as f:
-            f.write(f"file '{temp_orig}'\n")
-            f.write(f"file '{temp_silence}'\n")
-
-        subprocess.run([
-            "ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_list,
-            "-c", "copy", output_audio, "-y"
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-        for f in [temp_orig, temp_silence, concat_list]:
-            if os.path.exists(f):
-                os.remove(f)
-
-    if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-        raise Exception("Padding failed after both methods")
     return output_audio
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
@@ -307,7 +287,7 @@ with col_right:
 
             try:
                 # Cleanup old files
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3", "temp_convert.mp4", "temp_pad_convert.mp4", "temp_orig_pad.mp4", "temp_silence_pad.mp4", "concat_list_pad.txt"]:
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3", "temp_orig_pad.wav", "temp_silence_pad.wav"]:
                     if os.path.exists(f):
                         os.remove(f)
 
@@ -448,7 +428,7 @@ Rules:
                     raise Exception("Final output file is empty.")
 
                 # Cleanup
-                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "temp_convert.mp4", "temp_pad_convert.mp4", "temp_orig_pad.mp4", "temp_silence_pad.mp4", "concat_list_pad.txt"]:
+                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "temp_orig_pad.wav", "temp_silence_pad.wav"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
 
