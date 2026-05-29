@@ -67,31 +67,42 @@ def get_duration(file_path):
     except:
         return 0.0
 
-def pad_audio_with_silence_reliable(input_audio, output_audio, target_duration):
+def stretch_audio_to_target_duration(input_audio, output_audio, target_duration):
     """
-    Pad MP3 audio with native silence using the FFmpeg complex filter.
-    Highly stable across varying media wrapper layers.
+    Dynamically adjusts audio tempo so the voiceover stretches 
+    perfectly to match the video duration.
     """
     current = get_duration(input_audio)
-    if abs(current - target_duration) < 0.1:
+    if current <= 0 or abs(current - target_duration) < 0.5:
         subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_audio
 
-    pad_duration = target_duration - current
-    
-    # Generate padding by utilizing the across-filter framework straight into output
-    cmd = [
-        "ffmpeg", "-i", input_audio,
-        "-f", "lavfi", "-i", f"anullsrc=cl=mono:r=44100:d={pad_duration}",
-        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[outa]",
-        "-map", "[outa]", "-acodec", "libmp3lame", "-q:a", "2",
-        output_audio, "-y"
-    ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Calculate required speed factor
+    tempo_factor = current / target_duration
+
+    # FFmpeg 'atempo' filter limits are natively 0.5 to 2.0
+    if 0.5 <= tempo_factor <= 2.0:
+        cmd = [
+            "ffmpeg", "-i", input_audio,
+            "-filter:a", f"atempo={tempo_factor}",
+            "-acodec", "libmp3lame", "-q:a", "2",
+            output_audio, "-y"
+        ]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        # Fallback to combined filter structure if tempo adjustment exceeds reasonable limits
+        cmd = [
+            "ffmpeg", "-i", input_audio,
+            "-f", "lavfi", "-i", f"anullsrc=cl=mono:r=44100:d={max(0.1, target_duration - current)}",
+            "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[outa]",
+            "-map", "[outa]", "-acodec", "libmp3lame", "-q:a", "2",
+            output_audio, "-y"
+        ]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-        raise Exception("Padding failed: output file is missing or empty")
+        raise Exception("Audio synchronization adjustment produced an empty file.")
     return output_audio
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
@@ -317,17 +328,18 @@ with col_right:
                 progress_bar.progress(55)
                 lang_instr = {
                     "zh-CN": "natural Mandarin Chinese (Simplified). Output in Simplified Chinese characters only.",
-                    "ar-SA": "natural Modern Standard Arabic. Output in Arabic script only. Keep it concise (max 200 words).",
+                    "ar-SA": "natural Modern Standard Arabic. Output in Arabic script only.",
                     "pt-BR": "natural Brazilian Portuguese. Output in Portuguese only.",
                     "fr-FR": "natural French (Parisian).",
                     "es-ES": "natural Spanish (Castilian).",
                     "ht-HT": "natural Haitian Creole (Kreyòl Ayisyen).",
                 }.get(voice_code[:5], "natural US English.")
 
-                system_prompt = f"""You are a voiceover localizer. Rewrite the transcript into fluid, natural spoken prose.
-Target: {lang_instr}
-Rules: Keep original meaning, remove stiff grammar, avoid repetition, optimize for spoken delivery.
-Return ONLY the polished text, nothing else."""
+                system_prompt = f"""You are an advanced voiceover localizer. Rewrite the transcript into fluid, natural spoken prose.
+Target Language Structure: {lang_instr}
+Critical Rules: Keep original meaning, remove stiff grammar patterns, avoid repetitions, optimize structure for oral presentation. 
+Importantly, calibrate your verbosity level and sentence length so that it naturally fills an expected reading runtime of approximately {video_duration} seconds.
+Return ONLY the polished target text, nothing else."""
 
                 response = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
@@ -361,17 +373,17 @@ Return ONLY the polished text, nothing else."""
                     raise Exception("TTS produced an empty file.")
                 audio_duration = get_duration(output_audio)
 
-                # Step 6: Synchronize (pad audio, never speed up video)
-                status.text("Synchronizing video and audio...")
+                # Step 6: Synchronize (Stretches or extends to match video lengths natively)
+                status.text("Synchronizing video and audio tracks...")
                 progress_bar.progress(85)
                 if audio_duration > video_duration:
-                    st.warning(f"Voiceover longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video with frozen last frame.")
+                    st.warning(f"Voiceover longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video layout.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
                     working_audio = output_audio
                     final_duration = audio_duration
                 else:
-                    st.info(f"Voiceover shorter ({audio_duration:.1f}s). Adding silence to match video length ({video_duration:.1f}s).")
-                    working_audio = pad_audio_with_silence_reliable(output_audio, "padded_audio.mp3", video_duration)
+                    st.info(f"Stretching voiceover speed seamlessly to fill the video length ({video_duration:.1f}s).")
+                    working_audio = stretch_audio_to_target_duration(output_audio, "padded_audio.mp3", video_duration)
                     working_video = "video.mp4"
                     final_duration = video_duration
 
