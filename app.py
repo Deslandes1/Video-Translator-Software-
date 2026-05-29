@@ -69,13 +69,8 @@ def get_duration(file_path):
 
 def pad_audio_with_silence_reliable(input_audio, output_audio, target_duration):
     """
-    Pad audio with silence using a concat demuxer (robust).
-    Steps:
-    1. Get current duration.
-    2. If already close, copy.
-    3. Generate silence of required length.
-    4. Create a concat file listing original + silence.
-    5. Use ffmpeg concat demuxer to merge.
+    Pad MP3 audio with native silence using the FFmpeg complex filter.
+    Highly stable across varying media wrapper layers.
     """
     current = get_duration(input_audio)
     if abs(current - target_duration) < 0.1:
@@ -83,42 +78,20 @@ def pad_audio_with_silence_reliable(input_audio, output_audio, target_duration):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_audio
 
-    # Ensure input is converted to a consistent format (AAC, 48kHz) for smooth concatenation
-    temp_orig = "temp_orig_converted.mp4"
-    subprocess.run([
-        "ffmpeg", "-i", input_audio,
-        "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
-        "-f", "mp4", temp_orig, "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    # Generate silence of needed duration (as AAC in MP4 container)
     pad_duration = target_duration - current
-    silence_file = "temp_silence.mp4"
-    subprocess.run([
-        "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
-        "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
-        silence_file, "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    # Create concat list file
-    concat_list = "concat_list.txt"
-    with open(concat_list, "w") as f:
-        f.write(f"file '{temp_orig}'\n")
-        f.write(f"file '{silence_file}'\n")
-
-    # Concatenate using demuxer
-    subprocess.run([
-        "ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_list,
-        "-c", "copy", output_audio, "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    # Cleanup temp files
-    for f in [temp_orig, silence_file, concat_list]:
-        if os.path.exists(f):
-            os.remove(f)
+    
+    # Generate padding by utilizing the across-filter framework straight into output
+    cmd = [
+        "ffmpeg", "-i", input_audio,
+        "-f", "lavfi", "-i", f"anullsrc=cl=mono:r=44100:d={pad_duration}",
+        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[outa]",
+        "-map", "[outa]", "-acodec", "libmp3lame", "-q:a", "2",
+        output_audio, "-y"
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-        raise Exception("Padding produced empty output file.")
+        raise Exception("Padding failed: output file is missing or empty")
     return output_audio
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
@@ -295,7 +268,7 @@ with col_right:
 
             try:
                 # Cleanup old files
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3", "temp_orig_converted.mp4", "temp_silence.mp4", "concat_list.txt"]:
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3"]:
                     if os.path.exists(f):
                         os.remove(f)
 
@@ -426,7 +399,7 @@ Return ONLY the polished text, nothing else."""
                     raise Exception("Final output file is empty.")
 
                 # Cleanup
-                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "temp_orig_converted.mp4", "temp_silence.mp4", "concat_list.txt"]:
+                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
 
