@@ -4,4 +4,4 @@ plotly>=5.15.0
 groq
 requests
 edge-tts
-yt-dlp>=2025.0.0
+yt-dlp>=2024.12.13
