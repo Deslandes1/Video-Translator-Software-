@@ -119,7 +119,7 @@ def clean_repetitions(text):
         return " ".join(unique)
     return text
 
-# ================== DOWNLOAD WITH COOKIES (ENHANCED) ==================
+# ================== FAST DOWNLOAD WITH COOKIE SUPPORT & DROPBOX FIX ==================
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -156,7 +156,6 @@ def check_cookies_format(cookie_path):
             first_line = f.readline().strip()
             if not first_line.startswith('# Netscape HTTP Cookie File'):
                 return False, f"Invalid format: first line is '{first_line[:50]}' (should start with '# Netscape HTTP Cookie File')"
-            # Check if file contains any non-comment lines with tab separators (good sign)
             content = f.read()
             if not re.search(r'^[^#].*\t.*\t.*\t.*\t.*\t.*$', content, re.MULTILINE):
                 return False, "No valid cookie entries found (expected tab-separated fields)"
@@ -176,7 +175,7 @@ def download_video_with_ytdlp_subprocess(url, output_path, cookie_file):
         "--quiet", "--no-warnings",
         "--concurrent-fragments", "8",
         "--retries", "10",
-        "--sleep-interval", "5",        # avoid detection
+        "--sleep-interval", "5",
         "--max-sleep-interval", "10",
         "--no-check-certificates",
         url
@@ -193,7 +192,7 @@ def download_video_with_ytdlp_subprocess(url, output_path, cookie_file):
         return False
 
 def download_video(url, output_path, cookie_file=None):
-    # 1) Try aria2c (fast, only direct URLs)
+    # 1) Try aria2c (fast, works for direct media URLs, including Dropbox dl=1)
     if is_aria2_available():
         st.info("Trying aria2c with 16 parallel connections ...")
         cmd = [
@@ -211,9 +210,9 @@ def download_video(url, output_path, cookie_file=None):
         except Exception as e:
             st.warning(f"aria2c failed: {e}")
 
-    # 2) Use yt-dlp with cookies (first via Python API, then subprocess fallback)
+    # 2) Use yt-dlp with cookies (handles YouTube and also works as fallback)
     if YT_DLP_AVAILABLE:
-        st.info("Using yt-dlp with cookies (Python API)...")
+        st.info("Using yt-dlp with parallel fragments...")
         if not output_path.endswith('.mp4'):
             output_path = output_path + '.mp4'
         
@@ -231,8 +230,10 @@ def download_video(url, output_path, cookie_file=None):
             'extractor_args': {'youtube': {'skip': ['hls', 'dash']}},
             'sleep_interval': 5,
             'max_sleep_interval': 10,
-            'cookiefile': cookie_file if cookie_file and os.path.exists(cookie_file) else None,
         }
+        if cookie_file and os.path.exists(cookie_file):
+            ydl_opts['cookiefile'] = cookie_file
+            st.info("Using uploaded cookies.txt for authentication.")
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -246,7 +247,7 @@ def download_video(url, output_path, cookie_file=None):
             with open(output_path, 'rb') as f:
                 head = f.read(500)
                 if b'<html' in head.lower() or b'<!doctype' in head.lower():
-                    st.warning("yt-dlp (API) downloaded an HTML page. Trying subprocess method...")
+                    st.warning("yt-dlp downloaded an HTML page. Trying command line fallback if cookies available...")
                     raise Exception("HTML page received")
             st.write(f"yt-dlp result: {file_info(output_path)}")
             if is_valid_video(output_path):
@@ -256,9 +257,8 @@ def download_video(url, output_path, cookie_file=None):
                 st.error(f"yt-dlp produced an invalid video file. Info: {file_info(output_path)}")
         except Exception as e:
             st.warning(f"yt-dlp API failed: {e}")
-            # Fallback to subprocess method if cookies exist
             if cookie_file and os.path.exists(cookie_file):
-                st.info("Trying yt-dlp via command line with the same cookies...")
+                st.info("Trying yt-dlp command line with cookies...")
                 if download_video_with_ytdlp_subprocess(url, output_path, cookie_file):
                     if is_valid_video(output_path):
                         st.success("Downloaded with yt-dlp command line – valid video.")
@@ -268,9 +268,9 @@ def download_video(url, output_path, cookie_file=None):
                 else:
                     st.error("Command line yt-dlp also failed.")
             else:
-                st.error("No valid cookies provided. YouTube downloads are blocked.")
+                st.warning("No cookies provided. If this is a YouTube link, upload cookies in sidebar.")
 
-    # 3) Direct HTTP fallback
+    # 3) Direct HTTP fallback (only for direct URLs)
     st.info("Trying direct HTTP download ...")
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -320,8 +320,8 @@ st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Cookie upload with format checker
-st.sidebar.markdown("### YouTube Authentication")
+# Cookie upload for YouTube authentication
+st.sidebar.markdown("### YouTube Authentication (optional)")
 st.sidebar.markdown("Upload a `cookies.txt` file (Netscape format) from your browser while logged into YouTube.")
 cookies_file = st.sidebar.file_uploader("Upload cookies.txt", type=["txt"])
 cookies_path = None
@@ -335,11 +335,10 @@ if cookies_file is not None:
     else:
         st.sidebar.error(f"Invalid cookies file: {msg}")
         st.sidebar.info("Please export cookies again using the 'Get cookies.txt LOCALLY' extension in Edge/Chrome. Make sure you are logged into YouTube and the file starts with '# Netscape HTTP Cookie File'.")
-        cookies_path = None  # invalid, don't use it
+        cookies_path = None
 else:
     st.sidebar.info("No cookies provided. YouTube links may fail. For best results, export cookies from a logged‑in YouTube session.")
 
-# Instructions
 with st.sidebar.expander("📖 How to get cookies.txt (Edge)"):
     st.markdown("""
     1. Install **"Get cookies.txt LOCALLY"** from [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc).
@@ -385,6 +384,14 @@ with col_left:
             if not (raw_url.startswith("http://") or raw_url.startswith("https://")):
                 st.error("Please enter a valid URL (starts with http:// or https://)")
             else:
+                # AUTO-CONVERT DROPBOX LINKS TO DIRECT DOWNLOAD (dl=1)
+                if "dropbox.com" in raw_url:
+                    if "dl=0" in raw_url:
+                        raw_url = raw_url.replace("dl=0", "dl=1")
+                        st.info("Converted Dropbox link to direct download format (dl=1).")
+                    elif "?dl=" not in raw_url:
+                        raw_url = raw_url + "?dl=1"
+                        st.info("Added ?dl=1 to Dropbox link for direct download.")
                 download_url = raw_url
                 video_ready = True
                 try:
@@ -420,7 +427,7 @@ with col_right:
                     if os.path.exists(f):
                         os.remove(f)
 
-                # Step 1: Get video (with cookies if provided)
+                # Step 1: Get video
                 status.text("Downloading / reading video...")
                 progress_bar.progress(10)
                 if uploaded_file:
