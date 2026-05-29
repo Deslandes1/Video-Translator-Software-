@@ -120,7 +120,7 @@ def clean_repetitions(text):
         return " ".join(unique)
     return text
 
-# ================== FAST DOWNLOAD (aria2 + parallel) ==================
+# ================== FAST DOWNLOAD WITH FALLBACK ==================
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -128,55 +128,74 @@ def is_aria2_available():
     except:
         return False
 
+def is_valid_video(file_path):
+    """Return True if file exists and ffprobe recognizes it as a valid video."""
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+        return False
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type", "-of", "default=nokey=1:noprint_wrappers=1", file_path]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return result.returncode == 0 and result.stdout.decode().strip() == "video"
+
 def download_video(url, output_path):
-    """Download video using aria2c (16 parallel connections) or yt-dlp with fragments, fallback to requests."""
-    # 1) Try aria2c – fastest for direct HTTP/HTTPS links
+    """Try aria2c first (fast for direct links), then yt-dlp (handles YouTube), finally direct requests."""
+    # 1) Try aria2c (parallel, but only works for direct media URLs)
     if is_aria2_available():
-        st.info("Using aria2c with 16 parallel connections for fast download...")
+        st.info("Trying aria2c with 16 parallel connections ...")
         cmd = [
             "aria2c", "-x", "16", "-s", "16", "-k", "1M",
             "--console-log-level=error", "-o", output_path, url
         ]
         try:
-            result = subprocess.run(cmd, check=True, timeout=600)
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            subprocess.run(cmd, check=True, timeout=600)
+            if is_valid_video(output_path):
+                st.success("Downloaded with aria2c – valid video file.")
                 return True
+            else:
+                st.warning("aria2c downloaded a file, but it's not a valid video. Falling back to yt-dlp.")
         except Exception as e:
-            st.warning(f"aria2c failed: {e}. Falling back.")
+            st.warning(f"aria2c failed: {e}")
 
-    # 2) Use yt-dlp with parallel fragment downloads (good for YouTube, Vimeo)
+    # 2) Use yt-dlp (handles YouTube, Vimeo, etc.)
     if YT_DLP_AVAILABLE:
-        st.info("Using yt-dlp with parallel fragment downloads...")
+        st.info("Using yt-dlp with parallel fragments (best for YouTube, Vimeo) ...")
         ydl_opts = {
             'outtmpl': output_path,
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'quiet': True,
             'no_warnings': True,
-            'concurrent_fragment_downloads': 8,   # parallel fragments
+            'concurrent_fragment_downloads': 8,
             'retries': 10,
             'fragment_retries': 10,
-            'buffersize': 8192 * 16,              # larger buffer
+            'buffersize': 8192 * 16,
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            if is_valid_video(output_path):
+                st.success("Downloaded with yt-dlp – valid video file.")
                 return True
+            else:
+                st.error("yt-dlp produced an invalid video file.")
         except Exception as e:
-            st.warning(f"yt-dlp failed: {e}. Falling back to direct download.")
+            st.warning(f"yt-dlp failed: {e}")
 
-    # 3) Final fallback: simple requests (single connection)
-    st.info("Using direct download (single connection)...")
+    # 3) Final fallback: direct HTTP (only for direct MP4 links)
+    st.info("Trying direct HTTP download ...")
     try:
         r = requests.get(url, stream=True, timeout=60)
         r.raise_for_status()
         with open(output_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192 * 16):  # larger chunk
+            for chunk in r.iter_content(chunk_size=8192 * 16):
                 f.write(chunk)
-        return True
+        if is_valid_video(output_path):
+            st.success("Downloaded via direct HTTP – valid video file.")
+            return True
+        else:
+            st.error("Direct download produced an invalid file.")
     except Exception as e:
         st.error(f"Direct download failed: {e}")
-        return False
+
+    return False
 
 # ================== TTS (async) ==================
 async def generate_tts(text, output_path, voice_name, fallback_voice):
@@ -385,12 +404,12 @@ Rules:
                     st.info(f"Voiceover shorter ({audio_duration:.1f}s). Original video audio will play after voiceover ends.")
                     working_video = "video.mp4"
                     working_audio = output_audio
-                    final_duration = video_duration  # video keeps its original length
+                    final_duration = video_duration
 
                 # Step 7: Subtitles
                 generate_srt_file(localized_text, final_duration, "subtitles.srt")
 
-                # Step 8: Mix audio and burn subtitles (NO -shortest, so original audio continues after voiceover)
+                # Step 8: Mix audio and burn subtitles (faster encoding)
                 status.text("Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
                 cmd = [
@@ -398,7 +417,7 @@ Rules:
                     "-filter_complex", "[0:a]volume=0.2[a1];[1:a]volume=1.5[a2];[a1][a2]amix=inputs=2:duration=longest[a]",
                     "-map", "0:v", "-map", "[a]",
                     "-vf", "subtitles=subtitles.srt",
-                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",   # faster encoding
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
                     "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-b:a", "128k",
                     final_output, "-y"
