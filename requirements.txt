@@ -1,7 +1,5 @@
-streamlit>=1.35.0
-pandas>=2.0.0
-plotly>=5.15.0
+streamlit
 groq
-requests
 edge-tts
-yt-dlp>=2024.12.13
+yt-dlp
+requests
