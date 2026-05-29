@@ -120,6 +120,64 @@ def clean_repetitions(text):
         return " ".join(unique)
     return text
 
+# ================== FAST DOWNLOAD (aria2 + parallel) ==================
+def is_aria2_available():
+    try:
+        subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        return True
+    except:
+        return False
+
+def download_video(url, output_path):
+    """Download video using aria2c (16 parallel connections) or yt-dlp with fragments, fallback to requests."""
+    # 1) Try aria2c – fastest for direct HTTP/HTTPS links
+    if is_aria2_available():
+        st.info("Using aria2c with 16 parallel connections for fast download...")
+        cmd = [
+            "aria2c", "-x", "16", "-s", "16", "-k", "1M",
+            "--console-log-level=error", "-o", output_path, url
+        ]
+        try:
+            result = subprocess.run(cmd, check=True, timeout=600)
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return True
+        except Exception as e:
+            st.warning(f"aria2c failed: {e}. Falling back.")
+
+    # 2) Use yt-dlp with parallel fragment downloads (good for YouTube, Vimeo)
+    if YT_DLP_AVAILABLE:
+        st.info("Using yt-dlp with parallel fragment downloads...")
+        ydl_opts = {
+            'outtmpl': output_path,
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'quiet': True,
+            'no_warnings': True,
+            'concurrent_fragment_downloads': 8,   # parallel fragments
+            'retries': 10,
+            'fragment_retries': 10,
+            'buffersize': 8192 * 16,              # larger buffer
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return True
+        except Exception as e:
+            st.warning(f"yt-dlp failed: {e}. Falling back to direct download.")
+
+    # 3) Final fallback: simple requests (single connection)
+    st.info("Using direct download (single connection)...")
+    try:
+        r = requests.get(url, stream=True, timeout=60)
+        r.raise_for_status()
+        with open(output_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192 * 16):  # larger chunk
+                f.write(chunk)
+        return True
+    except Exception as e:
+        st.error(f"Direct download failed: {e}")
+        return False
+
 # ================== TTS (async) ==================
 async def generate_tts(text, output_path, voice_name, fallback_voice):
     try:
@@ -139,36 +197,6 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
         except Exception as e2:
             st.error(f"Fallback also failed: {e2}")
             return False
-
-# ================== Download Video ==================
-def download_video(url, output_path):
-    if url.endswith('.mp4') or url.endswith('.mov') or url.endswith('.mkv'):
-        try:
-            r = requests.get(url, stream=True, timeout=30)
-            r.raise_for_status()
-            with open(output_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            return True
-        except Exception as e:
-            st.warning(f"Direct download failed: {e}")
-    if YT_DLP_AVAILABLE:
-        try:
-            ydl_opts = {
-                'outtmpl': output_path,
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                'quiet': True,
-                'no_warnings': True,
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-            return True
-        except Exception as e:
-            st.error(f"yt-dlp failed: {e}")
-            return False
-    else:
-        st.error("yt-dlp not installed and direct download failed.")
-        return False
 
 # ================== Sidebar ==================
 st.sidebar.markdown("## GlobalInternet.py")
@@ -246,8 +274,8 @@ with col_right:
                     if os.path.exists(f):
                         os.remove(f)
 
-                # Step 1: Get video
-                status.text("Downloading / reading video...")
+                # Step 1: Get video (FAST DOWNLOAD NOW)
+                status.text("Downloading / reading video (parallel download if available)...")
                 progress_bar.progress(10)
                 if uploaded_file:
                     with open("video.mp4", "wb") as f:
@@ -370,7 +398,8 @@ Rules:
                     "-filter_complex", "[0:a]volume=0.2[a1];[1:a]volume=1.5[a2];[a1][a2]amix=inputs=2:duration=longest[a]",
                     "-map", "0:v", "-map", "[a]",
                     "-vf", "subtitles=subtitles.srt",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",   # faster encoding
+                    "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-b:a", "128k",
                     final_output, "-y"
                 ]
@@ -392,8 +421,8 @@ Rules:
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 st.success("Final video created successfully:")
-                with open(final_output, "rb") as f:
-                    st.video(f.read(), format="video/mp4")
+                # Stream video without loading fully into memory
+                st.video(final_output, format="video/mp4")
 
             except Exception as e:
                 progress_bar.empty()
