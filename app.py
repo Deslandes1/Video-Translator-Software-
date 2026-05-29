@@ -119,7 +119,7 @@ def clean_repetitions(text):
         return " ".join(unique)
     return text
 
-# ================== FAST DOWNLOAD WITH FALLBACK & DEBUGGING ==================
+# ================== FAST DOWNLOAD WITH COOKIE SUPPORT ==================
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -147,8 +147,8 @@ def file_info(path):
     fmt = result.stdout.decode().strip() if result.returncode == 0 else "unknown"
     return f"exists, size={size} bytes, format={fmt}"
 
-def download_video(url, output_path):
-    # 1) Try aria2c
+def download_video(url, output_path, cookie_file=None):
+    # 1) Try aria2c (only for direct media URLs)
     if is_aria2_available():
         st.info("Trying aria2c with 16 parallel connections ...")
         cmd = [
@@ -166,7 +166,7 @@ def download_video(url, output_path):
         except Exception as e:
             st.warning(f"aria2c failed: {e}")
 
-    # 2) Use yt-dlp with improved options and HTML detection
+    # 2) Use yt-dlp with cookies (if provided) and stronger headers
     if YT_DLP_AVAILABLE:
         st.info("Using yt-dlp with parallel fragments (best for YouTube, Vimeo) ...")
         if not output_path.endswith('.mp4'):
@@ -183,7 +183,15 @@ def download_video(url, output_path):
             'fragment_retries': 10,
             'buffersize': 8192 * 16,
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'extractor_args': {'youtube': {'skip': ['hls', 'dash']}},  # avoid formats that may cause issues
         }
+        # Add cookies if provided
+        if cookie_file and os.path.exists(cookie_file):
+            ydl_opts['cookiefile'] = cookie_file
+            st.info("Using uploaded cookies.txt to authenticate with YouTube.")
+        else:
+            st.info("No cookies provided. For YouTube, please upload a cookies.txt file from your browser (see sidebar).")
+        
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -197,7 +205,9 @@ def download_video(url, output_path):
             with open(output_path, 'rb') as f:
                 head = f.read(500)
                 if b'<html' in head.lower() or b'<!doctype' in head.lower():
-                    st.error("yt-dlp downloaded an HTML page instead of a video. The URL may be invalid, private, age-restricted, or region-locked.")
+                    st.error("yt-dlp downloaded an HTML page. This usually means YouTube is blocking the request.")
+                    if not cookie_file:
+                        st.error("Please provide a valid cookies.txt file in the sidebar to authenticate with YouTube.")
                     html_preview = head[:200].decode('utf-8', errors='ignore')
                     st.text(f"HTML preview: {html_preview}")
                     raise Exception("HTML page received")
@@ -258,6 +268,21 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
 st.sidebar.markdown("## GlobalInternet.py")
 st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
+st.sidebar.markdown("---")
+
+# Cookie upload for YouTube authentication
+st.sidebar.markdown("### YouTube Authentication")
+st.sidebar.markdown("To download from YouTube, please upload a cookies.txt file from your browser:")
+cookies_file = st.sidebar.file_uploader("Upload cookies.txt", type=["txt"], help="Export cookies from your browser while logged into YouTube. Use extensions like 'Get cookies.txt' for Chrome/Firefox.")
+cookies_path = None
+if cookies_file is not None:
+    cookies_path = "cookies.txt"
+    with open(cookies_path, "wb") as f:
+        f.write(cookies_file.getbuffer())
+    st.sidebar.success("Cookies loaded. YouTube downloads should now work.")
+else:
+    st.sidebar.info("No cookies provided. YouTube links may fail. For best results, export cookies from a logged-in YouTube session.")
+
 st.sidebar.markdown("---")
 
 voice_options = {
@@ -330,15 +355,15 @@ with col_right:
                     if os.path.exists(f):
                         os.remove(f)
 
-                # Step 1: Get video
+                # Step 1: Get video (with cookies if available)
                 status.text("Downloading / reading video (parallel download if available)...")
                 progress_bar.progress(10)
                 if uploaded_file:
                     with open("video.mp4", "wb") as f:
                         f.write(uploaded_file.getbuffer())
                 else:
-                    if not download_video(download_url, "video.mp4"):
-                        raise Exception("Failed to download video. Please check the link or use a direct file upload.")
+                    if not download_video(download_url, "video.mp4", cookie_file=cookies_path):
+                        raise Exception("Failed to download video. Please check the link, or upload a valid cookies.txt file for YouTube.")
 
                 if not os.path.exists("video.mp4") or os.path.getsize("video.mp4") == 0:
                     raise Exception("Video file is empty or could not be saved.")
@@ -471,6 +496,8 @@ Rules:
                 for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
+                if cookies_path and os.path.exists(cookies_path):
+                    os.remove(cookies_path)  # clean up cookie file after use
 
                 progress_bar.progress(100)
                 status.text("All systems harmonized! Video ready.")
