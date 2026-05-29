@@ -67,53 +67,8 @@ def get_duration(file_path):
     except:
         return 0.0
 
-def pad_audio_with_silence_reliable(input_audio, output_audio, target_duration):
-    """
-    Pad audio with silence to exactly target_duration.
-    Converts to WAV, generates silence, concatenates using filter_complex.
-    """
-    current = get_duration(input_audio)
-    if abs(current - target_duration) < 0.1:
-        subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return output_audio
-
-    # Convert input to WAV
-    temp_orig = "temp_orig_pad.wav"
-    subprocess.run([
-        "ffmpeg", "-i", input_audio,
-        "-ar", "48000", "-ac", "2", "-f", "wav",
-        temp_orig, "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    # Generate silence of needed duration (as WAV)
-    pad_duration = target_duration - current
-    temp_silence = "temp_silence_pad.wav"
-    subprocess.run([
-        "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
-        "-ar", "48000", "-ac", "2", "-f", "wav",
-        temp_silence, "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    # Concatenate using filter_complex
-    subprocess.run([
-        "ffmpeg", "-i", temp_orig, "-i", temp_silence,
-        "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
-        "-c:a", "aac", "-b:a", "128k",
-        output_audio, "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    # Cleanup
-    for f in [temp_orig, temp_silence]:
-        if os.path.exists(f):
-            os.remove(f)
-
-    if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-        raise Exception("Padding failed after concat filter")
-
-    return output_audio
-
 def extend_video_with_last_frame(original_video, output_video, target_duration):
+    """Extend video by freezing the last frame; also extends audio with silence."""
     orig_dur = get_duration(original_video)
     if orig_dur >= target_duration - 0.1:
         subprocess.run([
@@ -228,7 +183,7 @@ voice_options = {
     "中文 (Chinese Mandarin Male - Yunxi)": "zh-CN-YunxiNeural",
     "العربية (Arabic Male - Hamed)": "ar-SA-HamedNeural",
     "Português (Brazilian Portuguese Male - Antonio)": "pt-BR-AntonioNeural",
-    "Jamaican Patois (English-based Creole)": "en-US-ChristopherNeural"  # TTS placeholder
+    "Jamaican Patois (English-based Creole)": "en-US-ChristopherNeural"
 }
 selected_voice_label = st.sidebar.selectbox("Select Native Overdub Language Layer", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]
@@ -287,7 +242,7 @@ with col_right:
 
             try:
                 # Cleanup old files
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3", "temp_orig_pad.wav", "temp_silence_pad.wav"]:
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4"]:
                     if os.path.exists(f):
                         os.remove(f)
 
@@ -308,7 +263,7 @@ with col_right:
                 if video_duration <= 0:
                     video_duration = 30.0
 
-                # Step 2: Extract audio
+                # Step 2: Extract audio for transcription
                 status.text("Extracting audio...")
                 progress_bar.progress(25)
                 subprocess.run([
@@ -390,7 +345,7 @@ Rules:
                     raise Exception("TTS produced an empty file.")
                 audio_duration = get_duration(output_audio)
 
-                # Step 6: Synchronize
+                # Step 6: Handle longer voiceover (extend video) – shorter voiceover needs no padding
                 status.text("Synchronizing video and audio...")
                 progress_bar.progress(85)
                 if audio_duration > video_duration:
@@ -399,15 +354,15 @@ Rules:
                     working_audio = output_audio
                     final_duration = audio_duration
                 else:
-                    st.info(f"Voiceover shorter ({audio_duration:.1f}s). Adding silence to match video length ({video_duration:.1f}s).")
-                    working_audio = pad_audio_with_silence_reliable(output_audio, "padded_audio.mp3", video_duration)
+                    st.info(f"Voiceover shorter ({audio_duration:.1f}s). Original video audio will play after voiceover ends.")
                     working_video = "video.mp4"
-                    final_duration = video_duration
+                    working_audio = output_audio
+                    final_duration = video_duration  # video keeps its original length
 
                 # Step 7: Subtitles
                 generate_srt_file(localized_text, final_duration, "subtitles.srt")
 
-                # Step 8: Mix and burn subtitles
+                # Step 8: Mix audio and burn subtitles (NO -shortest, so original audio continues after voiceover)
                 status.text("Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
                 cmd = [
@@ -416,7 +371,7 @@ Rules:
                     "-map", "0:v", "-map", "[a]",
                     "-vf", "subtitles=subtitles.srt",
                     "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-shortest",
+                    "-c:a", "aac", "-b:a", "128k",
                     final_output, "-y"
                 ]
                 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -428,7 +383,7 @@ Rules:
                     raise Exception("Final output file is empty.")
 
                 # Cleanup
-                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "temp_orig_pad.wav", "temp_silence_pad.wav"]:
+                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
 
