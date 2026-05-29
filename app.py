@@ -68,7 +68,6 @@ def get_duration(file_path):
         return 0.0
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
-    """Extend video by freezing the last frame; also extends audio with silence."""
     orig_dur = get_duration(original_video)
     if orig_dur >= target_duration - 0.1:
         subprocess.run([
@@ -129,7 +128,6 @@ def is_aria2_available():
         return False
 
 def is_valid_video(file_path):
-    """Return True if file exists and ffprobe recognizes it as a valid video."""
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
         return False
     cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type", "-of", "default=nokey=1:noprint_wrappers=1", file_path]
@@ -141,7 +139,6 @@ def is_valid_video(file_path):
     return output == "video"
 
 def file_info(path):
-    """Return string with file size and format for debugging."""
     if not os.path.exists(path):
         return "does not exist"
     size = os.path.getsize(path)
@@ -151,8 +148,7 @@ def file_info(path):
     return f"exists, size={size} bytes, format={fmt}"
 
 def download_video(url, output_path):
-    """Try aria2c, then yt-dlp, then direct HTTP with detailed debugging."""
-    # 1) Try aria2c (fast parallel, works for direct media URLs)
+    # 1) Try aria2c
     if is_aria2_available():
         st.info("Trying aria2c with 16 parallel connections ...")
         cmd = [
@@ -170,43 +166,47 @@ def download_video(url, output_path):
         except Exception as e:
             st.warning(f"aria2c failed: {e}")
 
-    # 2) Use yt-dlp (handles YouTube, Vimeo, etc.)
+    # 2) Use yt-dlp with improved options and HTML detection
     if YT_DLP_AVAILABLE:
         st.info("Using yt-dlp with parallel fragments (best for YouTube, Vimeo) ...")
-        # Ensure output_path has .mp4 extension
         if not output_path.endswith('.mp4'):
             output_path = output_path + '.mp4'
+        
         ydl_opts = {
             'outtmpl': output_path,
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
-            'quiet': False,   # show output for debugging
+            'quiet': False,
             'no_warnings': False,
             'concurrent_fragment_downloads': 8,
             'retries': 10,
             'fragment_retries': 10,
             'buffersize': 8192 * 16,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 actual_file = ydl.prepare_filename(info)
-                st.write(f"yt-dlp downloaded file: {actual_file}")
-                if os.path.exists(actual_file) and actual_file != output_path:
-                    # Rename to expected output_path if needed
-                    os.rename(actual_file, output_path)
-                    st.write(f"Renamed to {output_path}")
+                if actual_file and os.path.exists(actual_file):
+                    if not actual_file.endswith('.mp4') and os.path.exists(actual_file + '.mp4'):
+                        actual_file = actual_file + '.mp4'
+                    if actual_file != output_path and os.path.exists(actual_file):
+                        os.rename(actual_file, output_path)
+            # Check for HTML content
+            with open(output_path, 'rb') as f:
+                head = f.read(500)
+                if b'<html' in head.lower() or b'<!doctype' in head.lower():
+                    st.error("yt-dlp downloaded an HTML page instead of a video. The URL may be invalid, private, age-restricted, or region-locked.")
+                    html_preview = head[:200].decode('utf-8', errors='ignore')
+                    st.text(f"HTML preview: {html_preview}")
+                    raise Exception("HTML page received")
             st.write(f"yt-dlp result: {file_info(output_path)}")
             if is_valid_video(output_path):
                 st.success("Downloaded with yt-dlp – valid video file.")
                 return True
             else:
                 st.error(f"yt-dlp produced an invalid video file. Info: {file_info(output_path)}")
-                # Check for HTML error page
-                with open(output_path, 'rb') as f:
-                    head = f.read(200)
-                    if b'<html' in head or b'<!DOCTYPE' in head:
-                        st.error("Downloaded file appears to be an HTML page (not video). URL may be invalid or require authentication.")
         except Exception as e:
             st.warning(f"yt-dlp failed with exception: {e}")
 
@@ -330,7 +330,7 @@ with col_right:
                     if os.path.exists(f):
                         os.remove(f)
 
-                # Step 1: Get video (fast download with fallback)
+                # Step 1: Get video
                 status.text("Downloading / reading video (parallel download if available)...")
                 progress_bar.progress(10)
                 if uploaded_file:
@@ -347,7 +347,7 @@ with col_right:
                 if video_duration <= 0:
                     video_duration = 30.0
 
-                # Step 2: Extract audio for transcription
+                # Step 2: Extract audio
                 status.text("Extracting audio...")
                 progress_bar.progress(25)
                 subprocess.run([
@@ -429,7 +429,7 @@ Rules:
                     raise Exception("TTS produced an empty file.")
                 audio_duration = get_duration(output_audio)
 
-                # Step 6: Handle longer voiceover (extend video) – shorter voiceover needs no padding
+                # Step 6: Synchronize
                 status.text("Synchronizing video and audio...")
                 progress_bar.progress(85)
                 if audio_duration > video_duration:
@@ -446,7 +446,7 @@ Rules:
                 # Step 7: Subtitles
                 generate_srt_file(localized_text, final_duration, "subtitles.srt")
 
-                # Step 8: Mix audio and burn subtitles (faster encoding)
+                # Step 8: Mix and burn subtitles
                 status.text("Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
                 cmd = [
@@ -477,7 +477,6 @@ Rules:
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 st.success("Final video created successfully:")
-                # Stream video without loading fully into memory
                 st.video(final_output, format="video/mp4")
 
             except Exception as e:
