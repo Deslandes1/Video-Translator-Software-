@@ -69,42 +69,56 @@ def get_duration(file_path):
 
 def pad_audio_with_silence_reliable(input_audio, output_audio, target_duration):
     """
-    Use FFmpeg's apad=whole_dur to pad (or truncate) the audio to exactly target_duration.
-    This is the most reliable method.
+    Pad audio with silence using a concat demuxer (robust).
+    Steps:
+    1. Get current duration.
+    2. If already close, copy.
+    3. Generate silence of required length.
+    4. Create a concat file listing original + silence.
+    5. Use ffmpeg concat demuxer to merge.
     """
     current = get_duration(input_audio)
     if abs(current - target_duration) < 0.1:
-        # Already close enough, just copy
         subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_audio
 
+    # Ensure input is converted to a consistent format (AAC, 48kHz) for smooth concatenation
+    temp_orig = "temp_orig_converted.mp4"
     subprocess.run([
         "ffmpeg", "-i", input_audio,
-        "-af", f"apad=whole_dur={target_duration}",
-        "-c:a", "aac", "-b:a", "128k",
-        output_audio, "-y"
+        "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
+        "-f", "mp4", temp_orig, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-        # Fallback: use a simple concat with generated silence
-        pad_duration = target_duration - current
-        silence_file = "silence_pad.wav"
-        subprocess.run([
-            "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
-            "-f", "wav", silence_file, "-y"
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run([
-            "ffmpeg", "-i", input_audio, "-i", silence_file,
-            "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
-            "-c:a", "aac", "-b:a", "128k",
-            output_audio, "-y"
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if os.path.exists(silence_file):
-            os.remove(silence_file)
+    # Generate silence of needed duration (as AAC in MP4 container)
+    pad_duration = target_duration - current
+    silence_file = "temp_silence.mp4"
+    subprocess.run([
+        "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
+        "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
+        silence_file, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Create concat list file
+    concat_list = "concat_list.txt"
+    with open(concat_list, "w") as f:
+        f.write(f"file '{temp_orig}'\n")
+        f.write(f"file '{silence_file}'\n")
+
+    # Concatenate using demuxer
+    subprocess.run([
+        "ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_list,
+        "-c", "copy", output_audio, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Cleanup temp files
+    for f in [temp_orig, silence_file, concat_list]:
+        if os.path.exists(f):
+            os.remove(f)
 
     if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-        raise Exception("Padding failed: output file is missing or empty")
+        raise Exception("Padding produced empty output file.")
     return output_audio
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
@@ -281,7 +295,7 @@ with col_right:
 
             try:
                 # Cleanup old files
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3", "silence_pad.wav"]:
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3", "temp_orig_converted.mp4", "temp_silence.mp4", "concat_list.txt"]:
                     if os.path.exists(f):
                         os.remove(f)
 
@@ -313,7 +327,7 @@ with col_right:
                 if not os.path.exists("extracted_audio.mp3") or os.path.getsize("extracted_audio.mp3") == 0:
                     raise Exception("Failed to extract audio from video.")
 
-                # Step 3: Transcribe with Groq Whisper
+                # Step 3: Transcribe
                 status.text("Transcribing original audio...")
                 progress_bar.progress(40)
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -412,7 +426,7 @@ Return ONLY the polished text, nothing else."""
                     raise Exception("Final output file is empty.")
 
                 # Cleanup
-                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "silence_pad.wav"]:
+                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "temp_orig_converted.mp4", "temp_silence.mp4", "concat_list.txt"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
 
