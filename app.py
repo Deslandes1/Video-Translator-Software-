@@ -67,42 +67,45 @@ def get_duration(file_path):
     except:
         return 0.0
 
-def stretch_audio_to_target_duration(input_audio, output_audio, target_duration):
-    """
-    Dynamically adjusts audio tempo so the voiceover stretches 
-    perfectly to match the video duration.
-    """
+def pad_audio_with_silence_reliable(input_audio, output_audio, target_duration):
+    """Pad audio with silence using concat demuxer (robust)."""
     current = get_duration(input_audio)
-    if current <= 0 or abs(current - target_duration) < 0.5:
+    if abs(current - target_duration) < 0.1:
         subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_audio
 
-    # Calculate required speed factor
-    tempo_factor = current / target_duration
+    temp_orig = "temp_orig_converted.mp4"
+    subprocess.run([
+        "ffmpeg", "-i", input_audio,
+        "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
+        "-f", "mp4", temp_orig, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # FFmpeg 'atempo' filter limits are natively 0.5 to 2.0
-    if 0.5 <= tempo_factor <= 2.0:
-        cmd = [
-            "ffmpeg", "-i", input_audio,
-            "-filter:a", f"atempo={tempo_factor}",
-            "-acodec", "libmp3lame", "-q:a", "2",
-            output_audio, "-y"
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    else:
-        # Fallback to combined filter structure if tempo adjustment exceeds reasonable limits
-        cmd = [
-            "ffmpeg", "-i", input_audio,
-            "-f", "lavfi", "-i", f"anullsrc=cl=mono:r=44100:d={max(0.1, target_duration - current)}",
-            "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[outa]",
-            "-map", "[outa]", "-acodec", "libmp3lame", "-q:a", "2",
-            output_audio, "-y"
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pad_duration = target_duration - current
+    silence_file = "temp_silence.mp4"
+    subprocess.run([
+        "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
+        "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
+        silence_file, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    concat_list = "concat_list.txt"
+    with open(concat_list, "w") as f:
+        f.write(f"file '{temp_orig}'\n")
+        f.write(f"file '{silence_file}'\n")
+
+    subprocess.run([
+        "ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_list,
+        "-c", "copy", output_audio, "-y"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    for f in [temp_orig, silence_file, concat_list]:
+        if os.path.exists(f):
+            os.remove(f)
 
     if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-        raise Exception("Audio synchronization adjustment produced an empty file.")
+        raise Exception("Padding produced empty output file.")
     return output_audio
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
@@ -213,14 +216,15 @@ st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
+# UPDATED VOICE OPTIONS: Removed Haitian Creole, added Jamaican Patois
 voice_options = {
     "Français (Native French Male - Henri)": "fr-FR-HenriNeural",
     "Español (Native Spanish Male - Alvaro)": "es-ES-AlvaroNeural",
     "English (Native US Male - Christopher)": "en-US-ChristopherNeural",
-    "Kreyòl Ayisyen (Haitian Creole Native - Michelle)": "ht-HT-MichelleNeural",
     "中文 (Chinese Mandarin Male - Yunxi)": "zh-CN-YunxiNeural",
     "العربية (Arabic Male - Hamed)": "ar-SA-HamedNeural",
-    "Português (Brazilian Portuguese Male - Antonio)": "pt-BR-AntonioNeural"
+    "Português (Brazilian Portuguese Male - Antonio)": "pt-BR-AntonioNeural",
+    "Jamaican Patois (English-based Creole)": "en-US-ChristopherNeural"  # TTS placeholder; localization will be Patois
 }
 selected_voice_label = st.sidebar.selectbox("Select Native Overdub Language Layer", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]
@@ -279,7 +283,7 @@ with col_right:
 
             try:
                 # Cleanup old files
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3"]:
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3", "temp_orig_converted.mp4", "temp_silence.mp4", "concat_list.txt"]:
                     if os.path.exists(f):
                         os.remove(f)
 
@@ -323,23 +327,32 @@ with col_right:
                     )
                 base_text = str(transcription).strip()
 
-                # Step 4: Localize
+                # Step 4: Localize to selected language (UPDATED for Jamaican Patois)
                 status.text("Localizing text to selected language...")
                 progress_bar.progress(55)
-                lang_instr = {
-                    "zh-CN": "natural Mandarin Chinese (Simplified). Output in Simplified Chinese characters only.",
-                    "ar-SA": "natural Modern Standard Arabic. Output in Arabic script only.",
-                    "pt-BR": "natural Brazilian Portuguese. Output in Portuguese only.",
-                    "fr-FR": "natural French (Parisian).",
-                    "es-ES": "natural Spanish (Castilian).",
-                    "ht-HT": "natural Haitian Creole (Kreyòl Ayisyen).",
-                }.get(voice_code[:5], "natural US English.")
+                # Identify language based on selected voice label
+                if "Jamaican Patois" in selected_voice_label:
+                    lang_instr = "authentic Jamaican Patois (Creole). Write exactly as a Jamaican would speak, using words like 'mi', 'yu', 'im', 'dem', 'weh', 'deh', 'likkle', 'bout', 'nuh', 'ya', 'come ya', 'gwaan', 'tun up', 'big up', etc. Use natural Jamaican grammar and slang. Keep the meaning identical but make it sound like true yard talk."
+                elif "Français" in selected_voice_label:
+                    lang_instr = "natural French (Parisian)."
+                elif "Español" in selected_voice_label:
+                    lang_instr = "natural Spanish (Castilian)."
+                elif "中文" in selected_voice_label:
+                    lang_instr = "natural Mandarin Chinese (Simplified). Output in Simplified Chinese characters only."
+                elif "العربية" in selected_voice_label:
+                    lang_instr = "natural Modern Standard Arabic. Output in Arabic script only. Keep it concise (max 200 words)."
+                elif "Português" in selected_voice_label:
+                    lang_instr = "natural Brazilian Portuguese. Output in Portuguese only."
+                else:
+                    lang_instr = "natural US English."
 
-                system_prompt = f"""You are an advanced voiceover localizer. Rewrite the transcript into fluid, natural spoken prose.
-Target Language Structure: {lang_instr}
-Critical Rules: Keep original meaning, remove stiff grammar patterns, avoid repetitions, optimize structure for oral presentation. 
-Importantly, calibrate your verbosity level and sentence length so that it naturally fills an expected reading runtime of approximately {video_duration} seconds.
-Return ONLY the polished target text, nothing else."""
+                system_prompt = f"""You are a voiceover localizer. Rewrite the transcript into fluid, natural spoken prose.
+Target style: {lang_instr}
+Rules:
+- Keep the original meaning exactly.
+- Remove stiff grammar, literal translations, and repetition.
+- Optimize for smooth voiceover delivery.
+- Return ONLY the polished text, nothing else."""
 
                 response = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
@@ -360,11 +373,13 @@ Return ONLY the polished target text, nothing else."""
                 status.text("Generating voiceover...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
-                fallback = {
-                    "fr": "fr-FR-HenriNeural",
-                    "es": "es-ES-AlvaroNeural",
-                    "ht": "fr-FR-HenriNeural",
-                }.get(voice_code[:2], "en-US-ChristopherNeural")
+                # Fallback voice (Jamaican Patois uses English voice)
+                if "Français" in selected_voice_label:
+                    fallback = "fr-FR-HenriNeural"
+                elif "Español" in selected_voice_label:
+                    fallback = "es-ES-AlvaroNeural"
+                else:
+                    fallback = "en-US-ChristopherNeural"
 
                 tts_success = asyncio.run(generate_tts(localized_text, output_audio, voice_code, fallback))
                 if not tts_success:
@@ -373,17 +388,17 @@ Return ONLY the polished target text, nothing else."""
                     raise Exception("TTS produced an empty file.")
                 audio_duration = get_duration(output_audio)
 
-                # Step 6: Synchronize (Stretches or extends to match video lengths natively)
-                status.text("Synchronizing video and audio tracks...")
+                # Step 6: Synchronize
+                status.text("Synchronizing video and audio...")
                 progress_bar.progress(85)
                 if audio_duration > video_duration:
-                    st.warning(f"Voiceover longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video layout.")
+                    st.warning(f"Voiceover longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video with frozen last frame.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
                     working_audio = output_audio
                     final_duration = audio_duration
                 else:
-                    st.info(f"Stretching voiceover speed seamlessly to fill the video length ({video_duration:.1f}s).")
-                    working_audio = stretch_audio_to_target_duration(output_audio, "padded_audio.mp3", video_duration)
+                    st.info(f"Voiceover shorter ({audio_duration:.1f}s). Adding silence to match video length ({video_duration:.1f}s).")
+                    working_audio = pad_audio_with_silence_reliable(output_audio, "padded_audio.mp3", video_duration)
                     working_video = "video.mp4"
                     final_duration = video_duration
 
@@ -411,7 +426,7 @@ Return ONLY the polished target text, nothing else."""
                     raise Exception("Final output file is empty.")
 
                 # Cleanup
-                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3"]:
+                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "temp_orig_converted.mp4", "temp_silence.mp4", "concat_list.txt"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
 
