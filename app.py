@@ -68,44 +68,69 @@ def get_duration(file_path):
         return 0.0
 
 def pad_audio_with_silence_reliable(input_audio, output_audio, target_duration):
-    """Pad audio with silence using concat demuxer (robust)."""
+    """
+    Pad audio with silence to exactly target_duration.
+    Uses a two-step process: convert to AAC in MP4 container, then apad.
+    If that fails, uses concat demuxer.
+    """
     current = get_duration(input_audio)
     if abs(current - target_duration) < 0.1:
         subprocess.run(["ffmpeg", "-i", input_audio, "-c", "copy", output_audio, "-y"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_audio
 
-    temp_orig = "temp_orig_converted.mp4"
+    # Step 1: Convert to consistent AAC in MP4
+    temp_converted = "temp_pad_convert.mp4"
     subprocess.run([
         "ffmpeg", "-i", input_audio,
         "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
-        "-f", "mp4", temp_orig, "-y"
+        "-f", "mp4", temp_converted, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    pad_duration = target_duration - current
-    silence_file = "temp_silence.mp4"
+    # Step 2: Apply apad=whole_dur
     subprocess.run([
-        "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
-        "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
-        silence_file, "-y"
+        "ffmpeg", "-i", temp_converted,
+        "-af", f"apad=whole_dur={target_duration}",
+        "-c:a", "aac", "-b:a", "128k",
+        output_audio, "-y"
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    concat_list = "concat_list.txt"
-    with open(concat_list, "w") as f:
-        f.write(f"file '{temp_orig}'\n")
-        f.write(f"file '{silence_file}'\n")
-
-    subprocess.run([
-        "ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_list,
-        "-c", "copy", output_audio, "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    for f in [temp_orig, silence_file, concat_list]:
-        if os.path.exists(f):
-            os.remove(f)
+    os.remove(temp_converted)
 
     if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-        raise Exception("Padding produced empty output file.")
+        # Fallback: concat demuxer
+        pad_duration = target_duration - current
+        temp_orig = "temp_orig_pad.mp4"
+        temp_silence = "temp_silence_pad.mp4"
+
+        subprocess.run([
+            "ffmpeg", "-i", input_audio,
+            "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
+            "-f", "mp4", temp_orig, "-y"
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        subprocess.run([
+            "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:duration={pad_duration}:sample_rate=48000",
+            "-c:a", "aac", "-ar", "48000", "-b:a", "128k",
+            temp_silence, "-y"
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        concat_list = "concat_list_pad.txt"
+        with open(concat_list, "w") as f:
+            f.write(f"file '{temp_orig}'\n")
+            f.write(f"file '{temp_silence}'\n")
+
+        subprocess.run([
+            "ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_list,
+            "-c", "copy", output_audio, "-y"
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        for f in [temp_orig, temp_silence, concat_list]:
+            if os.path.exists(f):
+                os.remove(f)
+
+    if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
+        raise Exception("Padding failed after both methods")
     return output_audio
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
@@ -216,7 +241,6 @@ st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# UPDATED VOICE OPTIONS: Removed Haitian Creole, added Jamaican Patois
 voice_options = {
     "Français (Native French Male - Henri)": "fr-FR-HenriNeural",
     "Español (Native Spanish Male - Alvaro)": "es-ES-AlvaroNeural",
@@ -224,7 +248,7 @@ voice_options = {
     "中文 (Chinese Mandarin Male - Yunxi)": "zh-CN-YunxiNeural",
     "العربية (Arabic Male - Hamed)": "ar-SA-HamedNeural",
     "Português (Brazilian Portuguese Male - Antonio)": "pt-BR-AntonioNeural",
-    "Jamaican Patois (English-based Creole)": "en-US-ChristopherNeural"  # TTS placeholder; localization will be Patois
+    "Jamaican Patois (English-based Creole)": "en-US-ChristopherNeural"  # TTS placeholder
 }
 selected_voice_label = st.sidebar.selectbox("Select Native Overdub Language Layer", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]
@@ -283,7 +307,7 @@ with col_right:
 
             try:
                 # Cleanup old files
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3", "temp_orig_converted.mp4", "temp_silence.mp4", "concat_list.txt"]:
+                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "padded_audio.mp3", "temp_convert.mp4", "temp_pad_convert.mp4", "temp_orig_pad.mp4", "temp_silence_pad.mp4", "concat_list_pad.txt"]:
                     if os.path.exists(f):
                         os.remove(f)
 
@@ -327,10 +351,9 @@ with col_right:
                     )
                 base_text = str(transcription).strip()
 
-                # Step 4: Localize to selected language (UPDATED for Jamaican Patois)
+                # Step 4: Localize
                 status.text("Localizing text to selected language...")
                 progress_bar.progress(55)
-                # Identify language based on selected voice label
                 if "Jamaican Patois" in selected_voice_label:
                     lang_instr = "authentic Jamaican Patois (Creole). Write exactly as a Jamaican would speak, using words like 'mi', 'yu', 'im', 'dem', 'weh', 'deh', 'likkle', 'bout', 'nuh', 'ya', 'come ya', 'gwaan', 'tun up', 'big up', etc. Use natural Jamaican grammar and slang. Keep the meaning identical but make it sound like true yard talk."
                 elif "Français" in selected_voice_label:
@@ -373,7 +396,6 @@ Rules:
                 status.text("Generating voiceover...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
-                # Fallback voice (Jamaican Patois uses English voice)
                 if "Français" in selected_voice_label:
                     fallback = "fr-FR-HenriNeural"
                 elif "Español" in selected_voice_label:
@@ -426,7 +448,7 @@ Rules:
                     raise Exception("Final output file is empty.")
 
                 # Cleanup
-                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "temp_orig_converted.mp4", "temp_silence.mp4", "concat_list.txt"]:
+                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "padded_audio.mp3", "temp_convert.mp4", "temp_pad_convert.mp4", "temp_orig_pad.mp4", "temp_silence_pad.mp4", "concat_list_pad.txt"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
 
