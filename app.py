@@ -119,6 +119,93 @@ def clean_repetitions(text):
         return " ".join(unique)
     return text
 
+# ================== TEXT SPLITTER FOR LONG TTS ==================
+def split_text_into_chunks(text, max_chars=1000):
+    """Split text into chunks not exceeding max_chars, preferring sentence boundaries."""
+    # Split on Chinese/Japanese/English sentence endings
+    sentences = re.split(r'(?<=[。！？.!?])', text)
+    chunks = []
+    current = ""
+    for sent in sentences:
+        if len(current) + len(sent) <= max_chars:
+            current += sent
+        else:
+            if current:
+                chunks.append(current.strip())
+            current = sent
+    if current:
+        chunks.append(current.strip())
+    # If no split possible (e.g., very long word), force split at max_chars
+    final_chunks = []
+    for chunk in chunks:
+        if len(chunk) <= max_chars:
+            final_chunks.append(chunk)
+        else:
+            # Force split at max_chars
+            for i in range(0, len(chunk), max_chars):
+                final_chunks.append(chunk[i:i+max_chars])
+    return final_chunks
+
+# ================== FIXED TTS WITH CHUNKING ==================
+async def generate_tts(text, output_path, voice_name, fallback_voice):
+    """
+    Generate TTS, splitting long texts into chunks.
+    Uses primary voice, falls back to fallback_voice per chunk if needed.
+    """
+    # If text is short enough, try direct generation
+    if len(text) < 1500:
+        try:
+            comm = edge_tts.Communicate(text, voice_name)
+            await comm.save(output_path)
+            if os.path.getsize(output_path) > 0:
+                return True
+        except Exception as e:
+            st.warning(f"Direct TTS failed: {e}. Trying fallback.")
+            try:
+                comm = edge_tts.Communicate(text, fallback_voice)
+                await comm.save(output_path)
+                return os.path.getsize(output_path) > 0
+            except:
+                return False
+    else:
+        # Split into manageable chunks
+        st.info(f"Text length {len(text)} chars → splitting into chunks (max 1000 chars).")
+        chunks = split_text_into_chunks(text, max_chars=1000)
+        temp_files = []
+        for i, chunk in enumerate(chunks):
+            temp_file = f"temp_tts_{i}.mp3"
+            try:
+                comm = edge_tts.Communicate(chunk, voice_name)
+                await comm.save(temp_file)
+                if os.path.getsize(temp_file) == 0:
+                    raise Exception("Empty file")
+                temp_files.append(temp_file)
+            except Exception as e:
+                st.warning(f"Chunk {i+1} failed with primary voice: {e}. Trying fallback.")
+                try:
+                    comm = edge_tts.Communicate(chunk, fallback_voice)
+                    await comm.save(temp_file)
+                    if os.path.getsize(temp_file) > 0:
+                        temp_files.append(temp_file)
+                    else:
+                        st.error(f"Fallback also failed for chunk {i+1}")
+                except Exception as e2:
+                    st.error(f"Chunk {i+1} completely failed: {e2}")
+        if not temp_files:
+            return False
+        # Concatenate all chunks
+        concat_file = "concat_list.txt"
+        with open(concat_file, "w") as f:
+            for tf in temp_files:
+                f.write(f"file '{tf}'\n")
+        cmd = ["ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_file, "-c", "copy", output_path, "-y"]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Cleanup
+        for tf in temp_files:
+            os.remove(tf)
+        os.remove(concat_file)
+        return os.path.getsize(output_path) > 0
+
 # ================== FAST DOWNLOAD WITH COOKIE SUPPORT & DROPBOX FIX ==================
 def is_aria2_available():
     try:
@@ -293,26 +380,6 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
 
     return False
-
-# ================== TTS (async) ==================
-async def generate_tts(text, output_path, voice_name, fallback_voice):
-    try:
-        comm = edge_tts.Communicate(text, voice_name)
-        await comm.save(output_path)
-        if os.path.getsize(output_path) == 0:
-            raise Exception("Empty file")
-        return True
-    except Exception as e:
-        st.warning(f"Primary voice '{voice_name}' failed: {e}. Trying fallback {fallback_voice}.")
-        try:
-            comm = edge_tts.Communicate(text, fallback_voice)
-            await comm.save(output_path)
-            if os.path.getsize(output_path) == 0:
-                raise Exception("Fallback empty")
-            return True
-        except Exception as e2:
-            st.error(f"Fallback also failed: {e2}")
-            return False
 
 # ================== Sidebar ==================
 st.sidebar.markdown("## GlobalInternet.py")
@@ -508,14 +575,17 @@ Rules:
                 localized_text = clean_repetitions(localized_text)
                 st.info(f"Localized script: \"{localized_text[:300]}...\" (truncated)")
 
-                # Step 5: Generate TTS
-                status.text("Generating voiceover...")
+                # Step 5: Generate TTS (CHUNKED FOR LONG TEXTS)
+                status.text("Generating voiceover (chunked for long text)...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
+                # Set appropriate fallback voice
                 if "Français" in selected_voice_label:
                     fallback = "fr-FR-HenriNeural"
                 elif "Español" in selected_voice_label:
                     fallback = "es-ES-AlvaroNeural"
+                elif "中文" in selected_voice_label:
+                    fallback = "zh-CN-XiaoxiaoNeural"   # Reliable Chinese fallback
                 else:
                     fallback = "en-US-ChristopherNeural"
 
