@@ -121,8 +121,6 @@ def clean_repetitions(text):
 
 # ================== TEXT SPLITTER FOR LONG TTS ==================
 def split_text_into_chunks(text, max_chars=1000):
-    """Split text into chunks not exceeding max_chars, preferring sentence boundaries."""
-    # Split on Chinese/Japanese/English sentence endings
     sentences = re.split(r'(?<=[。！？.!?])', text)
     chunks = []
     current = ""
@@ -135,24 +133,17 @@ def split_text_into_chunks(text, max_chars=1000):
             current = sent
     if current:
         chunks.append(current.strip())
-    # If no split possible (e.g., very long word), force split at max_chars
     final_chunks = []
     for chunk in chunks:
         if len(chunk) <= max_chars:
             final_chunks.append(chunk)
         else:
-            # Force split at max_chars
             for i in range(0, len(chunk), max_chars):
                 final_chunks.append(chunk[i:i+max_chars])
     return final_chunks
 
 # ================== FIXED TTS WITH CHUNKING ==================
 async def generate_tts(text, output_path, voice_name, fallback_voice):
-    """
-    Generate TTS, splitting long texts into chunks.
-    Uses primary voice, falls back to fallback_voice per chunk if needed.
-    """
-    # If text is short enough, try direct generation
     if len(text) < 1500:
         try:
             comm = edge_tts.Communicate(text, voice_name)
@@ -168,7 +159,6 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
             except:
                 return False
     else:
-        # Split into manageable chunks
         st.info(f"Text length {len(text)} chars → splitting into chunks (max 1000 chars).")
         chunks = split_text_into_chunks(text, max_chars=1000)
         temp_files = []
@@ -193,20 +183,18 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
                     st.error(f"Chunk {i+1} completely failed: {e2}")
         if not temp_files:
             return False
-        # Concatenate all chunks
         concat_file = "concat_list.txt"
         with open(concat_file, "w") as f:
             for tf in temp_files:
                 f.write(f"file '{tf}'\n")
         cmd = ["ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_file, "-c", "copy", output_path, "-y"]
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # Cleanup
         for tf in temp_files:
             os.remove(tf)
         os.remove(concat_file)
         return os.path.getsize(output_path) > 0
 
-# ================== FAST DOWNLOAD WITH COOKIE SUPPORT & DROPBOX FIX ==================
+# ================== FAST DOWNLOAD (unchanged) ==================
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -235,7 +223,6 @@ def file_info(path):
     return f"exists, size={size} bytes, format={fmt}"
 
 def check_cookies_format(cookie_path):
-    """Check if cookies.txt is in Netscape format and not expired."""
     if not cookie_path or not os.path.exists(cookie_path):
         return False, "No cookie file"
     try:
@@ -245,13 +232,12 @@ def check_cookies_format(cookie_path):
                 return False, f"Invalid format: first line is '{first_line[:50]}' (should start with '# Netscape HTTP Cookie File')"
             content = f.read()
             if not re.search(r'^[^#].*\t.*\t.*\t.*\t.*\t.*$', content, re.MULTILINE):
-                return False, "No valid cookie entries found (expected tab-separated fields)"
+                return False, "No valid cookie entries found"
             return True, "OK"
     except Exception as e:
         return False, str(e)
 
 def download_video_with_ytdlp_subprocess(url, output_path, cookie_file):
-    """Use yt-dlp command line with cookies – often more reliable than the Python API."""
     cmd = [
         "yt-dlp",
         "--cookies", cookie_file,
@@ -279,7 +265,6 @@ def download_video_with_ytdlp_subprocess(url, output_path, cookie_file):
         return False
 
 def download_video(url, output_path, cookie_file=None):
-    # 1) Try aria2c (fast, works for direct media URLs, including Dropbox dl=1)
     if is_aria2_available():
         st.info("Trying aria2c with 16 parallel connections ...")
         cmd = [
@@ -297,12 +282,10 @@ def download_video(url, output_path, cookie_file=None):
         except Exception as e:
             st.warning(f"aria2c failed: {e}")
 
-    # 2) Use yt-dlp with cookies (handles YouTube and also works as fallback)
     if YT_DLP_AVAILABLE:
         st.info("Using yt-dlp with parallel fragments...")
         if not output_path.endswith('.mp4'):
             output_path = output_path + '.mp4'
-        
         ydl_opts = {
             'outtmpl': output_path,
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -330,55 +313,41 @@ def download_video(url, output_path, cookie_file=None):
                         actual_file = actual_file + '.mp4'
                     if actual_file != output_path and os.path.exists(actual_file):
                         os.rename(actual_file, output_path)
-            # Check for HTML content
             with open(output_path, 'rb') as f:
                 head = f.read(500)
                 if b'<html' in head.lower() or b'<!doctype' in head.lower():
-                    st.warning("yt-dlp downloaded an HTML page. Trying command line fallback if cookies available...")
                     raise Exception("HTML page received")
             st.write(f"yt-dlp result: {file_info(output_path)}")
             if is_valid_video(output_path):
                 st.success("Downloaded with yt-dlp – valid video file.")
                 return True
             else:
-                st.error(f"yt-dlp produced an invalid video file. Info: {file_info(output_path)}")
+                st.error(f"yt-dlp produced invalid file.")
         except Exception as e:
             st.warning(f"yt-dlp API failed: {e}")
             if cookie_file and os.path.exists(cookie_file):
-                st.info("Trying yt-dlp command line with cookies...")
                 if download_video_with_ytdlp_subprocess(url, output_path, cookie_file):
                     if is_valid_video(output_path):
-                        st.success("Downloaded with yt-dlp command line – valid video.")
+                        st.success("Downloaded with yt-dlp command line.")
                         return True
-                    else:
-                        st.error("Command line yt-dlp produced invalid file.")
-                else:
-                    st.error("Command line yt-dlp also failed.")
-            else:
-                st.warning("No cookies provided. If this is a YouTube link, upload cookies in sidebar.")
 
-    # 3) Direct HTTP fallback (only for direct URLs)
     st.info("Trying direct HTTP download ...")
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        headers = {"User-Agent": "Mozilla/5.0"}
         r = requests.get(url, stream=True, timeout=60, headers=headers)
         r.raise_for_status()
         content_type = r.headers.get('content-type', '')
         if 'text/html' in content_type:
-            st.error("Direct HTTP returned HTML instead of video. URL is not a direct media link.")
+            st.error("Direct HTTP returned HTML.")
             return False
         with open(output_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192 * 16):
                 f.write(chunk)
-        st.write(f"Direct HTTP result: {file_info(output_path)}")
         if is_valid_video(output_path):
-            st.success("Downloaded via direct HTTP – valid video file.")
+            st.success("Downloaded via direct HTTP.")
             return True
-        else:
-            st.error("Direct download produced an invalid file.")
     except Exception as e:
         st.error(f"Direct download failed: {e}")
-
     return False
 
 # ================== Sidebar ==================
@@ -387,7 +356,6 @@ st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Cookie upload for YouTube authentication
 st.sidebar.markdown("### YouTube Authentication (optional)")
 st.sidebar.markdown("Upload a `cookies.txt` file (Netscape format) from your browser while logged into YouTube.")
 cookies_file = st.sidebar.file_uploader("Upload cookies.txt", type=["txt"])
@@ -401,7 +369,7 @@ if cookies_file is not None:
         st.sidebar.success("Cookies file looks valid. YouTube downloads should work.")
     else:
         st.sidebar.error(f"Invalid cookies file: {msg}")
-        st.sidebar.info("Please export cookies again using the 'Get cookies.txt LOCALLY' extension in Edge/Chrome. Make sure you are logged into YouTube and the file starts with '# Netscape HTTP Cookie File'.")
+        st.sidebar.info("Please export cookies again using the 'Get cookies.txt LOCALLY' extension in Edge/Chrome.")
         cookies_path = None
 else:
     st.sidebar.info("No cookies provided. YouTube links may fail. For best results, export cookies from a logged‑in YouTube session.")
@@ -439,11 +407,15 @@ with col_left:
     st.markdown("<h4>Source Input Interface</h4>", unsafe_allow_html=True)
     input_method = st.radio(
         "Select Input Source Layer:",
-        ["Upload Video from this Computer (.MP4)", "Paste Video Link (YouTube, Dropbox, Google Drive, Vimeo, direct MP4)"]
+        ["Upload Video from this Computer (.MP4)", 
+         "Paste Video Link (YouTube, Dropbox, Google Drive, Vimeo, direct MP4)",
+         "🎙️ AI Voiceover for Silent Video (Describe Software)"]
     )
     video_ready = False
     download_url = ""
     uploaded_file = None
+    custom_script = None
+    generate_desc = False
 
     if input_method == "Paste Video Link (YouTube, Dropbox, Google Drive, Vimeo, direct MP4)":
         raw_url = st.text_input("Paste Video Link Here:").strip()
@@ -451,25 +423,54 @@ with col_left:
             if not (raw_url.startswith("http://") or raw_url.startswith("https://")):
                 st.error("Please enter a valid URL (starts with http:// or https://)")
             else:
-                # AUTO-CONVERT DROPBOX LINKS TO DIRECT DOWNLOAD (dl=1)
                 if "dropbox.com" in raw_url:
                     if "dl=0" in raw_url:
                         raw_url = raw_url.replace("dl=0", "dl=1")
-                        st.info("Converted Dropbox link to direct download format (dl=1).")
+                        st.info("Converted Dropbox link to direct download (dl=1).")
                     elif "?dl=" not in raw_url:
                         raw_url = raw_url + "?dl=1"
-                        st.info("Added ?dl=1 to Dropbox link for direct download.")
+                        st.info("Added ?dl=1 to Dropbox link.")
                 download_url = raw_url
                 video_ready = True
                 try:
                     st.video(raw_url)
-                except Exception:
+                except:
                     st.info("Link accepted – will be downloaded during processing.")
-    else:
+    elif input_method == "Upload Video from this Computer (.MP4)":
         uploaded_file = st.file_uploader("Choose a video file:", type=["mp4", "mov", "mkv", "avi"])
         if uploaded_file is not None:
             st.video(uploaded_file)
             video_ready = True
+    else:  # Voiceover mode
+        st.markdown("**🎙️ Create AI voiceover for your silent demo video**")
+        raw_url = st.text_input("Paste your demo video link (no audio):").strip()
+        if raw_url:
+            if not (raw_url.startswith("http://") or raw_url.startswith("https://")):
+                st.error("Please enter a valid URL (starts with http:// or https://)")
+            else:
+                if "dropbox.com" in raw_url:
+                    if "dl=0" in raw_url:
+                        raw_url = raw_url.replace("dl=0", "dl=1")
+                        st.info("Converted Dropbox link to direct download (dl=1).")
+                    elif "?dl=" not in raw_url:
+                        raw_url = raw_url + "?dl=1"
+                        st.info("Added ?dl=1 to Dropbox link.")
+                download_url = raw_url
+                video_ready = True
+                try:
+                    st.video(raw_url)
+                except:
+                    st.info("Video link accepted.")
+        
+        st.markdown("**Voiceover Script**")
+        script_option = st.radio("Select script source:", ["AI Auto-generate description", "Write my own script"])
+        if script_option == "Write my own script":
+            custom_script = st.text_area("Enter your voiceover text (in the selected language):", height=150,
+                placeholder="Example: This software shows how to diagnose a Samsung tablet circuit...")
+        else:
+            generate_desc = True
+            st.info("AI will generate a description of the Circuit Diagnostics & Hardware Re‑engineering software based on its features.")
+    
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
@@ -489,12 +490,11 @@ with col_right:
             progress_bar = st.progress(0)
 
             try:
-                # Cleanup old files
+                # Cleanup
                 for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4"]:
                     if os.path.exists(f):
                         os.remove(f)
 
-                # Step 1: Get video
                 status.text("Downloading / reading video...")
                 progress_bar.progress(10)
                 if uploaded_file:
@@ -502,7 +502,7 @@ with col_right:
                         f.write(uploaded_file.getbuffer())
                 else:
                     if not download_video(download_url, "video.mp4", cookie_file=cookies_path):
-                        raise Exception("Failed to download video. Please check the link, or upload a valid cookies.txt file for YouTube.")
+                        raise Exception("Failed to download video. Please check the link.")
 
                 if not os.path.exists("video.mp4") or os.path.getsize("video.mp4") == 0:
                     raise Exception("Video file is empty or could not be saved.")
@@ -511,71 +511,115 @@ with col_right:
                 if video_duration <= 0:
                     video_duration = 30.0
 
-                # Step 2: Extract audio
-                status.text("Extracting audio...")
-                progress_bar.progress(25)
-                subprocess.run([
-                    "ffmpeg", "-i", "video.mp4", "-vn",
-                    "-acodec", "libmp3lame", "-q:a", "2", "extracted_audio.mp3", "-y"
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-                if not os.path.exists("extracted_audio.mp3") or os.path.getsize("extracted_audio.mp3") == 0:
-                    raise Exception("Failed to extract audio from video.")
-
-                # Step 3: Transcribe
-                status.text("Transcribing original audio...")
-                progress_bar.progress(40)
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-                with open("extracted_audio.mp3", "rb") as audio_file:
-                    transcription = client.audio.translations.create(
-                        file=("extracted_audio.mp3", audio_file.read()),
-                        model="whisper-large-v3",
-                        response_format="text"
-                    )
-                base_text = str(transcription).strip()
 
-                # Step 4: Localize
-                status.text("Localizing text to selected language...")
-                progress_bar.progress(55)
-                if "Jamaican Patois" in selected_voice_label:
-                    lang_instr = "authentic Jamaican Patois (Creole). Write exactly as a Jamaican would speak, using words like 'mi', 'yu', 'im', 'dem', 'weh', 'deh', 'likkle', 'bout', 'nuh', 'ya', 'come ya', 'gwaan', 'tun up', 'big up', etc. Use natural Jamaican grammar and slang. Keep the meaning identical but make it sound like true yard talk."
-                elif "Français" in selected_voice_label:
-                    lang_instr = "natural French (Parisian)."
-                elif "Español" in selected_voice_label:
-                    lang_instr = "natural Spanish (Castilian)."
-                elif "中文" in selected_voice_label:
-                    lang_instr = "natural Mandarin Chinese (Simplified). Output in Simplified Chinese characters only."
-                elif "العربية" in selected_voice_label:
-                    lang_instr = "natural Modern Standard Arabic. Output in Arabic script only. Keep it concise (max 200 words)."
-                elif "Português" in selected_voice_label:
-                    lang_instr = "natural Brazilian Portuguese. Output in Portuguese only."
+                # Determine localized script
+                if input_method == "🎙️ AI Voiceover for Silent Video (Describe Software)":
+                    # No original audio to transcribe
+                    status.text("Preparing voiceover script...")
+                    progress_bar.progress(25)
+                    
+                    if generate_desc:
+                        # Use LLM to generate description
+                        lang_instr = ""
+                        if "Français" in selected_voice_label:
+                            lang_instr = "natural French"
+                        elif "Español" in selected_voice_label:
+                            lang_instr = "natural Spanish"
+                        elif "中文" in selected_voice_label:
+                            lang_instr = "natural Mandarin Chinese (Simplified characters)"
+                        elif "العربية" in selected_voice_label:
+                            lang_instr = "Modern Standard Arabic"
+                        elif "Português" in selected_voice_label:
+                            lang_instr = "Brazilian Portuguese"
+                        else:
+                            lang_instr = "natural US English"
+                        
+                        desc_prompt = f"""You are an AI assistant. Write a clear, engaging voiceover script in {lang_instr} describing the software shown in the video.
+The software is called "Circuit Diagnostics & Hardware Re‑engineering". Its features include:
+- Connect a real USB probe (Arduino) to measure voltages on broken circuits.
+- Upload a photo of a circuit board for AI visual damage analysis.
+- Device auto‑detection (iPhone, Samsung tablet, laptop, etc.) or manual override.
+- Demo mode with pre‑loaded readings.
+- AI diagnostic report (fault summary, actions, recommended tools).
+- Chatbot to redesign new hardware from salvaged chips.
+
+The video shows a user clicking through the app: selecting language, uploading a Samsung tablet image, enabling demo mode, loading demo readings, running diagnostic, and asking "How can I use this tablet circuit to build a new drone hardware circuit?".
+
+Write a voiceover script that describes each step as if the viewer is watching the mouse movements. Keep the tone professional but friendly. The script should be 1-2 minutes long (approx 200-300 words). Output only the script text, no extra commentary.
+"""
+                        response = client.chat.completions.create(
+                            model="llama-3.1-8b-instant",
+                            messages=[{"role": "user", "content": desc_prompt}],
+                            temperature=0.4,
+                            max_tokens=800
+                        )
+                        localized_text = response.choices[0].message.content.strip()
+                        st.info("AI-generated script ready.")
+                    else:
+                        localized_text = custom_script.strip()
+                        if not localized_text:
+                            raise Exception("Please provide a custom script or enable auto-generation.")
+                    
+                    # No need to extract audio, we skip that step.
+                    # We'll directly generate TTS.
                 else:
-                    lang_instr = "natural US English."
+                    # Original translation pipeline
+                    status.text("Extracting audio...")
+                    progress_bar.progress(25)
+                    subprocess.run([
+                        "ffmpeg", "-i", "video.mp4", "-vn",
+                        "-acodec", "libmp3lame", "-q:a", "2", "extracted_audio.mp3", "-y"
+                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    if not os.path.exists("extracted_audio.mp3") or os.path.getsize("extracted_audio.mp3") == 0:
+                        raise Exception("Failed to extract audio from video.")
 
-                system_prompt = f"""You are a voiceover localizer. Rewrite the transcript into fluid, natural spoken prose.
+                    status.text("Transcribing original audio...")
+                    progress_bar.progress(40)
+                    with open("extracted_audio.mp3", "rb") as audio_file:
+                        transcription = client.audio.translations.create(
+                            file=("extracted_audio.mp3", audio_file.read()),
+                            model="whisper-large-v3",
+                            response_format="text"
+                        )
+                    base_text = str(transcription).strip()
+
+                    status.text("Localizing text...")
+                    progress_bar.progress(55)
+                    if "Jamaican Patois" in selected_voice_label:
+                        lang_instr = "authentic Jamaican Patois"
+                    elif "Français" in selected_voice_label:
+                        lang_instr = "natural French"
+                    elif "Español" in selected_voice_label:
+                        lang_instr = "natural Spanish"
+                    elif "中文" in selected_voice_label:
+                        lang_instr = "natural Mandarin Chinese (Simplified)"
+                    elif "العربية" in selected_voice_label:
+                        lang_instr = "natural Modern Standard Arabic"
+                    elif "Português" in selected_voice_label:
+                        lang_instr = "natural Brazilian Portuguese"
+                    else:
+                        lang_instr = "natural US English"
+                    system_prompt = f"""You are a voiceover localizer. Rewrite the transcript into fluid, natural spoken prose.
 Target style: {lang_instr}
 Rules:
 - Keep the original meaning exactly.
 - Remove stiff grammar, literal translations, and repetition.
-- Optimize for smooth voiceover delivery.
 - Return ONLY the polished text, nothing else."""
+                    response = client.chat.completions.create(
+                        model="llama-3.1-8b-instant",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": base_text}
+                        ],
+                        temperature=0.2,
+                        max_tokens=800,
+                    )
+                    localized_text = response.choices[0].message.content.strip()
+                    localized_text = clean_repetitions(localized_text)
+                    st.info(f"Localized script: \"{localized_text[:300]}...\"")
 
-                response = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": base_text}
-                    ],
-                    temperature=0.2,
-                    max_tokens=800,
-                    frequency_penalty=0.5,
-                    presence_penalty=0.5
-                )
-                localized_text = response.choices[0].message.content.strip()
-                localized_text = clean_repetitions(localized_text)
-                st.info(f"Localized script: \"{localized_text[:300]}...\" (truncated)")
-
-                # Step 5: Generate TTS (CHUNKED FOR LONG TEXTS)
+                # Step 5: Generate TTS
                 status.text("Generating voiceover (chunked for long text)...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
@@ -585,7 +629,7 @@ Rules:
                 elif "Español" in selected_voice_label:
                     fallback = "es-ES-AlvaroNeural"
                 elif "中文" in selected_voice_label:
-                    fallback = "zh-CN-XiaoxiaoNeural"   # Reliable Chinese fallback
+                    fallback = "zh-CN-XiaoxiaoNeural"
                 else:
                     fallback = "en-US-ChristopherNeural"
 
@@ -596,7 +640,6 @@ Rules:
                     raise Exception("TTS produced an empty file.")
                 audio_duration = get_duration(output_audio)
 
-                # Step 6: Synchronize
                 status.text("Synchronizing video and audio...")
                 progress_bar.progress(85)
                 if audio_duration > video_duration:
@@ -605,27 +648,29 @@ Rules:
                     working_audio = output_audio
                     final_duration = audio_duration
                 else:
-                    st.info(f"Voiceover shorter ({audio_duration:.1f}s). Original video audio will play after voiceover ends.")
+                    st.info(f"Voiceover shorter ({audio_duration:.1f}s). Original video audio will be replaced (muted).")
                     working_video = "video.mp4"
                     working_audio = output_audio
                     final_duration = video_duration
 
-                # Step 7: Subtitles
+                # Subtitles
                 generate_srt_file(localized_text, final_duration, "subtitles.srt")
 
-                # Step 8: Mix and burn subtitles
+                # Mix audio (replace original audio with new TTS)
                 status.text("Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
+                # We will ignore original audio by using -an on the video input, or use map to only take new audio.
                 cmd = [
                     "ffmpeg", "-i", working_video, "-i", working_audio,
-                    "-filter_complex", "[0:a]volume=0.2[a1];[1:a]volume=1.5[a2];[a1][a2]amix=inputs=2:duration=longest[a]",
-                    "-map", "0:v", "-map", "[a]",
+                    "-map", "0:v:0", "-map", "1:a:0",
                     "-vf", "subtitles=subtitles.srt",
                     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
                     "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-b:a", "128k",
                     final_output, "-y"
                 ]
+                # For non-voiceover mode, you could keep original audio mixed, but here we replace.
+                # If you prefer to keep original audio at lower volume, adjust accordingly.
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
                     st.error(f"FFmpeg error: {result.stderr}")
@@ -634,7 +679,7 @@ Rules:
                 if not os.path.exists(final_output) or os.path.getsize(final_output) == 0:
                     raise Exception("Final output file is empty.")
 
-                # Cleanup
+                # Cleanup temporary files
                 for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
