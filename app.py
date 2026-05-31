@@ -119,7 +119,6 @@ def clean_repetitions(text):
         return " ".join(unique)
     return text
 
-# ================== TEXT SPLITTER FOR LONG TTS ==================
 def split_text_into_chunks(text, max_chars=1000):
     sentences = re.split(r'(?<=[。！？.!?])', text)
     chunks = []
@@ -142,7 +141,6 @@ def split_text_into_chunks(text, max_chars=1000):
                 final_chunks.append(chunk[i:i+max_chars])
     return final_chunks
 
-# ================== FIXED TTS WITH CHUNKING ==================
 async def generate_tts(text, output_path, voice_name, fallback_voice):
     if len(text) < 1500:
         try:
@@ -194,7 +192,7 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
         os.remove(concat_file)
         return os.path.getsize(output_path) > 0
 
-# ================== FAST DOWNLOAD (unchanged) ==================
+# ================== Download functions (unchanged) ==================
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -469,7 +467,7 @@ with col_left:
                 placeholder="Example: This software shows how to diagnose a Samsung tablet circuit...")
         else:
             generate_desc = True
-            st.info("AI will generate a description of the Circuit Diagnostics & Hardware Re‑engineering software based on its features.")
+            st.info("AI will generate a professional description of the Circuit Diagnostics & Hardware Re‑engineering software.")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -490,7 +488,6 @@ with col_right:
             progress_bar = st.progress(0)
 
             try:
-                # Cleanup
                 for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4"]:
                     if os.path.exists(f):
                         os.remove(f)
@@ -513,40 +510,40 @@ with col_right:
 
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-                # Determine localized script
                 if input_method == "🎙️ AI Voiceover for Silent Video (Describe Software)":
-                    # No original audio to transcribe
                     status.text("Preparing voiceover script...")
                     progress_bar.progress(25)
                     
                     if generate_desc:
-                        # Use LLM to generate description
-                        lang_instr = ""
+                        # Determine target language instruction (neutral)
                         if "Français" in selected_voice_label:
-                            lang_instr = "natural French"
+                            lang_name = "French"
                         elif "Español" in selected_voice_label:
-                            lang_instr = "natural Spanish"
+                            lang_name = "Spanish"
                         elif "中文" in selected_voice_label:
-                            lang_instr = "natural Mandarin Chinese (Simplified characters)"
+                            lang_name = "Mandarin Chinese (Simplified)"
                         elif "العربية" in selected_voice_label:
-                            lang_instr = "Modern Standard Arabic"
+                            lang_name = "Modern Standard Arabic"
                         elif "Português" in selected_voice_label:
-                            lang_instr = "Brazilian Portuguese"
+                            lang_name = "Brazilian Portuguese"
                         else:
-                            lang_instr = "natural US English"
-                        
-                        desc_prompt = f"""You are an AI assistant. Write a clear, engaging voiceover script in {lang_instr} describing the software shown in the video.
-The software is called "Circuit Diagnostics & Hardware Re‑engineering". Its features include:
-- Connect a real USB probe (Arduino) to measure voltages on broken circuits.
-- Upload a photo of a circuit board for AI visual damage analysis.
-- Device auto‑detection (iPhone, Samsung tablet, laptop, etc.) or manual override.
-- Demo mode with pre‑loaded readings.
-- AI diagnostic report (fault summary, actions, recommended tools).
-- Chatbot to redesign new hardware from salvaged chips.
+                            lang_name = "English"
 
-The video shows a user clicking through the app: selecting language, uploading a Samsung tablet image, enabling demo mode, loading demo readings, running diagnostic, and asking "How can I use this tablet circuit to build a new drone hardware circuit?".
+                        desc_prompt = f"""You are a professional AI voiceover script writer. Write a clear, engaging voiceover script in {lang_name} for a demonstration video of the software "Circuit Diagnostics & Hardware Re‑engineering". The viewer will see a screen recording where a user interacts with the app.
 
-Write a voiceover script that describes each step as if the viewer is watching the mouse movements. Keep the tone professional but friendly. The script should be 1-2 minutes long (approx 200-300 words). Output only the script text, no extra commentary.
+IMPORTANT: 
+- Do not mention that you are choosing a specific language like French. Instead, say: "You can choose any language you prefer" or similar.
+- The script must include the credit: "This software was built by Gesner Deslandes at GlobalInternet.py."
+- The tone should be professional, confident, and suitable for a product demo.
+
+Software features to describe (match the visual actions in the video):
+- Language selection: show how the user selects a language from the sidebar (e.g., English, French, Spanish, etc.)
+- Upload a Samsung tablet circuit image for visual damage analysis.
+- Enable Demo Mode and load pre‑set readings.
+- Run the full diagnostic to get a fault summary, actions, and recommended tools.
+- Ask the redesign chatbot: "How can I use this tablet circuit to build a new drone hardware circuit?" and show the AI's answer.
+
+The script should flow naturally as the mouse moves. Keep the length around 200-300 words (about 1-2 minutes of speech). Output only the script text, no extra commentary.
 """
                         response = client.chat.completions.create(
                             model="llama-3.1-8b-instant",
@@ -555,14 +552,14 @@ Write a voiceover script that describes each step as if the viewer is watching t
                             max_tokens=800
                         )
                         localized_text = response.choices[0].message.content.strip()
+                        # Ensure the credit is present (if not, prepend)
+                        if "Gesner Deslandes" not in localized_text or "GlobalInternet.py" not in localized_text:
+                            localized_text = "This software was built by Gesner Deslandes at GlobalInternet.py. " + localized_text
                         st.info("AI-generated script ready.")
                     else:
                         localized_text = custom_script.strip()
                         if not localized_text:
                             raise Exception("Please provide a custom script or enable auto-generation.")
-                    
-                    # No need to extract audio, we skip that step.
-                    # We'll directly generate TTS.
                 else:
                     # Original translation pipeline
                     status.text("Extracting audio...")
@@ -619,11 +616,9 @@ Rules:
                     localized_text = clean_repetitions(localized_text)
                     st.info(f"Localized script: \"{localized_text[:300]}...\"")
 
-                # Step 5: Generate TTS
                 status.text("Generating voiceover (chunked for long text)...")
                 progress_bar.progress(70)
                 output_audio = "translated_voice.mp3"
-                # Set appropriate fallback voice
                 if "Français" in selected_voice_label:
                     fallback = "fr-FR-HenriNeural"
                 elif "Español" in selected_voice_label:
@@ -643,23 +638,20 @@ Rules:
                 status.text("Synchronizing video and audio...")
                 progress_bar.progress(85)
                 if audio_duration > video_duration:
-                    st.warning(f"Voiceover longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video with frozen last frame.")
+                    st.warning(f"Voiceover longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
                     working_audio = output_audio
                     final_duration = audio_duration
                 else:
-                    st.info(f"Voiceover shorter ({audio_duration:.1f}s). Original video audio will be replaced (muted).")
+                    st.info(f"Voiceover shorter ({audio_duration:.1f}s). Original audio will be replaced.")
                     working_video = "video.mp4"
                     working_audio = output_audio
                     final_duration = video_duration
 
-                # Subtitles
                 generate_srt_file(localized_text, final_duration, "subtitles.srt")
 
-                # Mix audio (replace original audio with new TTS)
                 status.text("Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
-                # We will ignore original audio by using -an on the video input, or use map to only take new audio.
                 cmd = [
                     "ffmpeg", "-i", working_video, "-i", working_audio,
                     "-map", "0:v:0", "-map", "1:a:0",
@@ -669,8 +661,6 @@ Rules:
                     "-c:a", "aac", "-b:a", "128k",
                     final_output, "-y"
                 ]
-                # For non-voiceover mode, you could keep original audio mixed, but here we replace.
-                # If you prefer to keep original audio at lower volume, adjust accordingly.
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
                     st.error(f"FFmpeg error: {result.stderr}")
@@ -679,7 +669,6 @@ Rules:
                 if not os.path.exists(final_output) or os.path.getsize(final_output) == 0:
                     raise Exception("Final output file is empty.")
 
-                # Cleanup temporary files
                 for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
