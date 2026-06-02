@@ -17,7 +17,7 @@ except ImportError:
 
 # ================== Page Config ==================
 st.set_page_config(
-    page_title="BonardEnterprise AI Voiceover | GlobalInternet.py",
+    page_title="Software Solutions AI Voiceover | GlobalInternet.py",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -203,7 +203,7 @@ Translated text ({target_language_name}):"""
         return translated
     except Exception as e:
         st.error(f"Translation failed: {e}")
-        return text  # fallback to original English
+        return text
 
 # ================== Download functions ==================
 def is_aria2_available():
@@ -321,23 +321,23 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
     return False
 
-# ================== Sidebar with Female Voices ==================
+# ================== Sidebar with MALE Voices ==================
 st.sidebar.markdown("## GlobalInternet.py")
-st.sidebar.markdown("### AI Voiceover for BonardEnterprise Demo")
+st.sidebar.markdown("### AI Voiceover for Software Solutions Demo")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Female voice options with language names for translation
+# Male voice options with language names for translation
 voice_options = {
-    "English (US Female - Jenny)": {"code": "en-US-JennyNeural", "language": "English"},
-    "English (UK Female - Sonia)": {"code": "en-GB-SoniaNeural", "language": "English"},
-    "Français (French Female - Denise)": {"code": "fr-FR-DeniseNeural", "language": "French"},
-    "Español (Spanish Female - Elvira)": {"code": "es-ES-ElviraNeural", "language": "Spanish"},
-    "中文 (Chinese Female - Xiaoxiao)": {"code": "zh-CN-XiaoxiaoNeural", "language": "Mandarin Chinese"},
-    "العربية (Arabic Female - Amina)": {"code": "ar-SA-AminaNeural", "language": "Arabic"},
-    "Português (Portuguese Female - Francisca)": {"code": "pt-BR-FranciscaNeural", "language": "Portuguese"},
+    "English (US Male - Christopher)": {"code": "en-US-ChristopherNeural", "language": "English"},
+    "English (UK Male - Ryan)": {"code": "en-GB-RyanNeural", "language": "English"},
+    "Français (French Male - Henri)": {"code": "fr-FR-HenriNeural", "language": "French"},
+    "Español (Spanish Male - Alvaro)": {"code": "es-ES-AlvaroNeural", "language": "Spanish"},
+    "中文 (Chinese Male - Yunxi)": {"code": "zh-CN-YunxiNeural", "language": "Mandarin Chinese"},
+    "العربية (Arabic Male - Hamed)": {"code": "ar-SA-HamedNeural", "language": "Arabic"},
+    "Português (Portuguese Male - Antonio)": {"code": "pt-BR-AntonioNeural", "language": "Portuguese"},
 }
-selected_voice_label = st.sidebar.selectbox("Select Female Voice for Narration", list(voice_options.keys()))
+selected_voice_label = st.sidebar.selectbox("Select Male Voice for Narration", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]["code"]
 target_language = voice_options[selected_voice_label]["language"]
 
@@ -345,38 +345,54 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### How it works")
 st.sidebar.markdown("1. The app downloads your mute demo video from Dropbox.")
 st.sidebar.markdown("2. Your English script is **automatically translated** into the selected language.")
-st.sidebar.markdown("3. A pure native female AI voice reads the translated script.")
+st.sidebar.markdown("3. A pure native male AI voice reads the translated script.")
 st.sidebar.markdown("4. The final video includes the voiceover and subtitles – ready to share!")
 
 # ================== Main Interface ==================
-st.title("🏢 Add a Native Female Voiceover to Your BonardEnterprise Demo")
-st.markdown("### Your English script will be translated and spoken by a real native female voice – no mixed accents.")
+st.title("💻 Add a Native Male Voiceover to Your Software Pricing Demo")
+st.markdown("### Your English script will be translated and spoken by a real native male voice – no mixed accents.")
 
 col_left, col_right = st.columns([2, 1.8])
 
 with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("#### Source Video (mute)")
-    # The user's BonardEnterprise video link
-    default_video_url = "https://www.dropbox.com/scl/fi/c2p07a5kwrwadrmhxt8wv/Boad.mp4?rlkey=v4lgbtr4oyanmsfk21n9ujv2a&st=zmnluey5&dl=0"
+    # New video link for the PriceList screen recording (50 seconds)
+    default_video_url = "https://www.dropbox.com/scl/fi/3egada5fbrnbuwb7jk43e/PriceList.mp4?rlkey=eilqhlrnbc8bk75okcny8daad&st=d0bofct7&dl=0"
     video_url = st.text_input("Video URL (Dropbox, YouTube, or direct MP4):", value=default_video_url)
     st.markdown("---")
     
     st.markdown("#### Narration Script (English)")
     st.markdown("Write your script in English. It will be automatically translated into the selected language.")
     
-    # Pre-filled script as per your detailed instructions
-    default_script = """Welcome to the official website of BonardEnterprise, built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py.
+    # New script tailored to the "Top 10 Software Solutions" list and the additional content below
+    default_script = """Welcome to the Top 10 Most In-Demand Software Solutions for 2025, presented by GlobalInternet.py, built by Gesner Deslandes, Engineer-in-Chief.
 
-In this video, we will give you a quick tour of the website's key features. First, you'll see the beautifully designed main page. As I scroll up and down, you can get a feel for the modern and professional layout. The main page showcases the latest products from BonardEnterprise.
+Let's go through the list. Number one: Website builders like Wix, GoDaddy, and Shopify, starting at three to seventeen dollars per month. Ideal for small businesses and online stores.
 
-Now, let's take a look at a product detail page. Here, you will find a detailed description of the product, along with its pricing. This is where visitors can learn everything about the product. I'm now clicking on the 'Comment Section'. This interactive area allows visitors to leave their feedback, ask questions, or share their experience directly under the product. This fosters a great community around the brand.
+Number two: Customer Relationship Management, or CRM, with options like Monday CRM, Pipedrive, and Capsule. Prices start at twelve to twenty-four dollars per user per month.
 
-Next, I will click on the toggle sidebar on the left. As you can see, a menu slides out. Here, visitors can select their preferred language from three options: English, French, and Spanish. This feature makes the website accessible to a wider, international audience.
+Number three: Project management tools like Zoho Projects, Jira, and TeamGantt, from four to ten dollars per user per month. Perfect for remote teams and IT projects.
 
-This website was built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py. If you need a professional, modern, and fully functional website for your business, please get in touch with our company, GlobalInternet.py. We are the best at what we do! We deliver top-quality web solutions.
+Number four: Accounting and finance software such as QuickBooks Online, Xero, and Wave, ranging from free to eighty dollars per month.
 
-To connect with us, simply visit the BonardEnterprise website. You will find all our contact information, including our email address and office phone number, right there. Thank you for watching."""
+Number five: Email marketing platforms like Brevo, Mailchimp, and GetResponse, starting at nine to nineteen dollars per month.
+
+Number six: E-commerce platforms including Shopify, Wix Core, and Squarespace, from five to thirty-five dollars per month.
+
+Number seven: Inventory management systems like inFlow Inventory and EZOfficeInventory, priced between forty and one hundred twenty-nine dollars per month.
+
+Number eight: Booking and appointment systems such as Spacebring and Domilocus, from about forty-two to one hundred eighty-five dollars per month.
+
+Number nine: Help desk and customer support software like Freshdesk, HappyFox, and InvGate, at seventeen to twenty-nine dollars per agent per month.
+
+Number ten: Social media management tools like Social Champ, Agorapulse, and Sprout Social, from twenty-nine to one hundred ninety-nine dollars per seat per month.
+
+These ten categories cover the most requested software by small and medium businesses. Commerce and front-office tools make up 29 percent of needs, back-office systems account for 23 percent, and CRMs, collaboration platforms, and cybersecurity are top priorities for growing companies.
+
+Now, how can GlobalInternet.py help you? Instead of paying monthly subscriptions for multiple tools, we build custom, unified software tailored exactly to your workflows. Our pricing is competitive: full source code delivery for twenty-nine dollars, source code plus customization for forty-nine dollars, and custom development quoted per project. We deliver the code by email within twenty-four hours after payment.
+
+Contact us today: Phone (509) 4738 5663, email deslandes78@gmail.com. Visit our website at GlobalInternet.py. We are the best at what we do – let us build your next software solution. Thank you for watching."""
     
     english_script = st.text_area("English script (must include credit):", height=400, value=default_script)
     
@@ -403,7 +419,7 @@ with col_right:
             # Ensure credit is present
             final_english = english_script.strip()
             if "Gesner Deslandes" not in final_english or "GlobalInternet.py" not in final_english:
-                final_english = "This website was built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_english
+                final_english = "This presentation is brought to you by GlobalInternet.py, built by Gesner Deslandes, Engineer‑in‑Chief. " + final_english
                 st.info("Added missing credit line to script.")
             
             st.markdown('<div class="status-box">', unsafe_allow_html=True)
@@ -422,7 +438,7 @@ with col_right:
                     raise Exception("Failed to download video. Please check the link.")
                 video_duration = get_duration("video.mp4")
                 if video_duration <= 0:
-                    video_duration = 30.0
+                    video_duration = 50.0
                 status.text(f"Video duration: {video_duration:.1f} seconds")
                 
                 # Translate script if target language is not English
@@ -436,10 +452,10 @@ with col_right:
                 else:
                     final_script = final_english
                 
-                status.text("🗣️ Generating pure native female voiceover...")
+                status.text("🗣️ Generating pure native male voiceover...")
                 progress_bar.progress(50)
                 output_audio = "translated_voice.mp3"
-                fallback_voice = "en-US-JennyNeural"
+                fallback_voice = "en-US-ChristopherNeural"
                 tts_success = asyncio.run(generate_tts(final_script, output_audio, voice_code, fallback_voice))
                 if not tts_success:
                     raise Exception("TTS generation failed. Check network or voice code.")
@@ -486,7 +502,7 @@ with col_right:
                 st.success("Your narrated video is ready. The voice speaks pure native language – no English mixed in!")
                 st.video(final_output, format="video/mp4")
                 with open(final_output, "rb") as f:
-                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="bonard_demo_narrated.mp4", mime="video/mp4", use_container_width=True)
+                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="software_solutions_narrated.mp4", mime="video/mp4", use_container_width=True)
                 
             except Exception as e:
                 progress_bar.empty()
