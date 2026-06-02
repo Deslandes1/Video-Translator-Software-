@@ -4,7 +4,6 @@ import subprocess
 import requests
 import asyncio
 import re
-from groq import Groq
 import edge_tts
 
 # yt-dlp (optional)
@@ -17,7 +16,7 @@ except ImportError:
 
 # ================== Page Config ==================
 st.set_page_config(
-    page_title="GlobalInternet.py AI Video Voice Translator",
+    page_title="Color Game AI Voiceover | GlobalInternet.py",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -108,17 +107,6 @@ def generate_srt_file(text, duration_sec, output_srt_path):
             end = (idx + 1) * chunk_duration
             f.write(f"{idx+1}\n{fmt(start)} --> {fmt(end)}\n{' '.join(chunk)}\n\n")
 
-def clean_repetitions(text):
-    words = text.split()
-    if len(words) > 400 and words[-10:] and len(set(words[-10:])) < 2:
-        unique = []
-        for w in words:
-            if w not in unique or len(unique) > 100:
-                break
-            unique.append(w)
-        return " ".join(unique)
-    return text
-
 def split_text_into_chunks(text, max_chars=1000):
     sentences = re.split(r'(?<=[。！？.!?])', text)
     chunks = []
@@ -192,7 +180,7 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
         os.remove(concat_file)
         return os.path.getsize(output_path) > 0
 
-# ================== Download functions (unchanged) ==================
+# ================== Download functions ==================
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -220,49 +208,15 @@ def file_info(path):
     fmt = result.stdout.decode().strip() if result.returncode == 0 else "unknown"
     return f"exists, size={size} bytes, format={fmt}"
 
-def check_cookies_format(cookie_path):
-    if not cookie_path or not os.path.exists(cookie_path):
-        return False, "No cookie file"
-    try:
-        with open(cookie_path, 'r') as f:
-            first_line = f.readline().strip()
-            if not first_line.startswith('# Netscape HTTP Cookie File'):
-                return False, f"Invalid format: first line is '{first_line[:50]}' (should start with '# Netscape HTTP Cookie File')"
-            content = f.read()
-            if not re.search(r'^[^#].*\t.*\t.*\t.*\t.*\t.*$', content, re.MULTILINE):
-                return False, "No valid cookie entries found"
-            return True, "OK"
-    except Exception as e:
-        return False, str(e)
-
-def download_video_with_ytdlp_subprocess(url, output_path, cookie_file):
-    cmd = [
-        "yt-dlp",
-        "--cookies", cookie_file,
-        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "--merge-output-format", "mp4",
-        "--output", output_path,
-        "--quiet", "--no-warnings",
-        "--concurrent-fragments", "8",
-        "--retries", "10",
-        "--sleep-interval", "5",
-        "--max-sleep-interval", "10",
-        "--no-check-certificates",
-        url
-    ]
-    try:
-        st.info("Running yt-dlp command line with cookies...")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-        if result.returncode != 0:
-            st.error(f"yt-dlp subprocess error: {result.stderr}")
-            return False
-        return True
-    except Exception as e:
-        st.error(f"yt-dlp subprocess exception: {e}")
-        return False
-
 def download_video(url, output_path, cookie_file=None):
+    # Convert Dropbox link to direct download if needed
+    if "dropbox.com" in url and "dl=0" in url:
+        url = url.replace("dl=0", "dl=1")
+        st.info("Converted Dropbox link to direct download.")
+    elif "dropbox.com" in url and "?dl=" not in url:
+        url = url + "?dl=1"
+        st.info("Added ?dl=1 to Dropbox link.")
+    
     if is_aria2_available():
         st.info("Trying aria2c with 16 parallel connections ...")
         cmd = [
@@ -323,11 +277,6 @@ def download_video(url, output_path, cookie_file=None):
                 st.error(f"yt-dlp produced invalid file.")
         except Exception as e:
             st.warning(f"yt-dlp API failed: {e}")
-            if cookie_file and os.path.exists(cookie_file):
-                if download_video_with_ytdlp_subprocess(url, output_path, cookie_file):
-                    if is_valid_video(output_path):
-                        st.success("Downloaded with yt-dlp command line.")
-                        return True
 
     st.info("Trying direct HTTP download ...")
     try:
@@ -350,39 +299,11 @@ def download_video(url, output_path, cookie_file=None):
 
 # ================== Sidebar with Female Voices ==================
 st.sidebar.markdown("## GlobalInternet.py")
-st.sidebar.markdown("### AI Multi-Language Voice Translator")
+st.sidebar.markdown("### AI Voiceover for Color Game")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-st.sidebar.markdown("### YouTube Authentication (optional)")
-st.sidebar.markdown("Upload a `cookies.txt` file (Netscape format) from your browser while logged into YouTube.")
-cookies_file = st.sidebar.file_uploader("Upload cookies.txt", type=["txt"])
-cookies_path = None
-if cookies_file is not None:
-    cookies_path = "cookies.txt"
-    with open(cookies_path, "wb") as f:
-        f.write(cookies_file.getbuffer())
-    valid, msg = check_cookies_format(cookies_path)
-    if valid:
-        st.sidebar.success("Cookies file looks valid. YouTube downloads should work.")
-    else:
-        st.sidebar.error(f"Invalid cookies file: {msg}")
-        st.sidebar.info("Please export cookies again using the 'Get cookies.txt LOCALLY' extension in Edge/Chrome.")
-        cookies_path = None
-else:
-    st.sidebar.info("No cookies provided. YouTube links may fail. For best results, export cookies from a logged‑in YouTube session.")
-
-with st.sidebar.expander("📖 How to get cookies.txt (Edge)"):
-    st.markdown("""
-    1. Install **"Get cookies.txt LOCALLY"** from [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc).
-    2. Log into YouTube in Edge.
-    3. Click the extension icon → **Export** → **Export All Cookies**.
-    4. Upload the downloaded file here.
-    """)
-
-st.sidebar.markdown("---")
-
-# Updated voice options with FEMALE voices
+# Female voice options
 voice_options = {
     "English (US Female - Jenny)": "en-US-JennyNeural",
     "English (UK Female - Sonia)": "en-GB-SoniaNeural",
@@ -391,35 +312,33 @@ voice_options = {
     "中文 (Chinese Female - Xiaoxiao)": "zh-CN-XiaoxiaoNeural",
     "العربية (Arabic Female - Amina)": "ar-SA-AminaNeural",
     "Português (Portuguese Female - Francisca)": "pt-BR-FranciscaNeural",
-    "Jamaican Patois (English Female)": "en-US-JennyNeural"   # fallback
 }
-selected_voice_label = st.sidebar.selectbox("Select Female Voice Overdub", list(voice_options.keys()))
+selected_voice_label = st.sidebar.selectbox("Select Female Voice for Narration", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]
 
-st.title("🎨 AI Voiceover for Your Color Game Demo")
-st.markdown("### Turn your mute gameplay video into a narrated tutorial with a natural female voice.")
-st.markdown("---")
+st.sidebar.markdown("---")
+st.sidebar.markdown("### How it works")
+st.sidebar.markdown("1. The app downloads your mute gameplay video from Dropbox.")
+st.sidebar.markdown("2. A female AI voice narrates the game mechanics, balloon celebration, and sidebar info.")
+st.sidebar.markdown("3. The final video includes the voiceover and subtitles – ready to share!")
+
+# ================== Main Interface ==================
+st.title("🎨 Add Female Voiceover to Your Color Game Demo")
+st.markdown("### Your mute video will be enhanced with a natural female voice explaining each step.")
 
 col_left, col_right = st.columns([2, 1.8])
 
 with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-    st.markdown("<h4>Source Video</h4>", unsafe_allow_html=True)
-    
-    # Pre‑fill the Dropbox link (mute demo video)
-    default_url = "https://www.dropbox.com/scl/fi/yzg1adtnbldj5l6zoo54j/Color-game.mp4?rlkey=4eetqcb4xcqf6nlqi8eijcsbs&st=sz2ryrro&dl=0"
-    video_url = st.text_input("Paste your mute video link (Dropbox, YouTube, direct MP4):", value=default_url)
-    
+    st.markdown("#### Source Video (mute)")
+    # Pre-filled Dropbox link (your video)
+    default_video_url = "https://www.dropbox.com/scl/fi/yzg1adtnbldj5l6zoo54j/Color-game.mp4?rlkey=4eetqcb4xcqf6nlqi8eijcsbs&st=sz2ryrro&dl=0"
+    video_url = st.text_input("Video URL (Dropbox, YouTube, or direct MP4):", value=default_video_url)
     st.markdown("---")
-    st.markdown("<h4>Voiceover Script</h4>", unsafe_allow_html=True)
-    script_option = st.radio("Script source:", ["AI Auto-generate description of the color game", "Write my own script"])
     
-    if script_option == "Write my own script":
-        custom_script = st.text_area("Enter your voiceover text (in the language of the selected female voice):", height=200,
-            placeholder="Example: Welcome to the Color Match Game...")
-    else:
-        # Use a pre‑written script that describes the game exactly as shown in the video
-        auto_script = """Welcome to the Color Match Game, created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.
+    st.markdown("#### Narration Script")
+    st.markdown("The following script will be spoken by the selected female voice while the video plays.")
+    script_text = st.text_area("Edit the script (must include credit):", height=300, value="""Welcome to the Color Match Game, created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.
 
 In this fun educational game, you see a row of colorful swatches at the top. Each swatch has no label. Below, you see the names of the colors. Your task is to drag each color name and drop it onto the matching color square.
 
@@ -429,78 +348,74 @@ Watch as I match all eight colors: red, orange, yellow, green, blue, purple, pin
 
 On the left sidebar, you'll find my contact information, the website, and competitive pricing to get the full source code delivered by email.
 
-This game is perfect for kids learning colors. Try it yourself and enjoy the celebration!"""
-        st.info("AI will use the script below (you can edit it if needed):")
-        custom_script = st.text_area("Edit the auto-generated script:", value=auto_script, height=250)
+This game is perfect for kids learning colors. Try it yourself and enjoy the celebration!""")
     
+    # Ensure credit line is present
+    if "Gesner Deslandes" not in script_text or "GlobalInternet.py" not in script_text:
+        st.warning("⚠️ Your script must include the credit: 'This game was created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.'")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-    st.markdown("<h4>Generate Narrated Video</h4>", unsafe_allow_html=True)
+    st.markdown("#### Generate Narrated Video")
+    st.markdown(f"**Selected voice:** {selected_voice_label}")
+    generate_btn = st.button("🎤 Create Voiceover Video", use_container_width=True)
     
-    process_btn = st.button("🎤 Generate Female Voiceover Video", use_container_width=True)
-    
-    if process_btn:
+    if generate_btn:
         if not video_url:
-            st.error("Please provide a video link.")
-        elif not custom_script.strip():
-            st.error("Please provide a script or use auto-generation.")
-        elif "GROQ_API_KEY" not in st.secrets:
-            st.error("Missing Groq API key. Add GROQ_API_KEY to your Streamlit secrets.")
+            st.error("Please provide a video URL.")
+        elif not script_text.strip():
+            st.error("Please provide a narration script.")
         else:
+            # Ensure credit is present (add if missing)
+            final_script = script_text.strip()
+            if "Gesner Deslandes" not in final_script or "GlobalInternet.py" not in final_script:
+                final_script = "This game was created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_script
+                st.info("Added missing credit line to script.")
+            
             st.markdown('<div class="status-box">', unsafe_allow_html=True)
-            st.markdown("<h5>Pipeline Progress</h5>", unsafe_allow_html=True)
             status = st.empty()
             progress_bar = st.progress(0)
             
             try:
-                # Clean previous files
-                for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4"]:
+                # Cleanup old files
+                for f in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4"]:
                     if os.path.exists(f):
                         os.remove(f)
                 
-                status.text("Downloading video...")
+                status.text("📥 Downloading video...")
                 progress_bar.progress(10)
-                if not download_video(video_url, "video.mp4", cookie_file=cookies_path):
-                    raise Exception("Failed to download video. Check the link and cookies if needed.")
+                if not download_video(video_url, "video.mp4"):
+                    raise Exception("Failed to download video. Please check the link.")
                 
                 video_duration = get_duration("video.mp4")
                 if video_duration <= 0:
                     video_duration = 30.0
+                status.text(f"Video duration: {video_duration:.1f} seconds")
                 
-                status.text("Generating voiceover with female AI voice...")
+                status.text("🗣️ Generating female voiceover...")
                 progress_bar.progress(40)
-                
-                # Use the custom script directly (no extra AI call needed)
-                localized_text = custom_script.strip()
-                # Ensure credit line is present
-                if "Gesner Deslandes" not in localized_text or "GlobalInternet.py" not in localized_text:
-                    localized_text = "This game was created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + localized_text
-                
-                status.text("Synthesizing speech...")
-                progress_bar.progress(60)
                 output_audio = "translated_voice.mp3"
-                # Define fallback voice (same as selected if female, else Jenny)
-                fallback = "en-US-JennyNeural"
-                tts_success = asyncio.run(generate_tts(localized_text, output_audio, voice_code, fallback))
+                fallback_voice = "en-US-JennyNeural"  # fallback to Jenny if selected voice fails
+                tts_success = asyncio.run(generate_tts(final_script, output_audio, voice_code, fallback_voice))
                 if not tts_success:
-                    raise Exception("TTS generation failed.")
+                    raise Exception("TTS generation failed. Check network or voice code.")
                 audio_duration = get_duration(output_audio)
+                status.text(f"Voiceover duration: {audio_duration:.1f} seconds")
                 
-                status.text("Synchronizing video and audio...")
-                progress_bar.progress(80)
+                status.text("🔄 Synchronizing video and audio...")
+                progress_bar.progress(70)
                 if audio_duration > video_duration:
-                    st.warning(f"Voiceover longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video.")
+                    st.warning(f"Voiceover is longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video with last frame.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
                     final_duration = audio_duration
                 else:
                     working_video = "video.mp4"
                     final_duration = video_duration
                 
-                generate_srt_file(localized_text, final_duration, "subtitles.srt")
+                generate_srt_file(final_script, final_duration, "subtitles.srt")
                 
-                status.text("Mixing audio and burning subtitles...")
+                status.text("🎬 Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
                 cmd = [
                     "ffmpeg", "-i", working_video, "-i", output_audio,
@@ -516,27 +431,24 @@ with col_right:
                     st.error(f"FFmpeg error: {result.stderr}")
                     raise Exception("Mixing failed.")
                 
-                for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
+                # Cleanup temp files
+                for tmp in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
-                if cookies_path and os.path.exists(cookies_path):
-                    os.remove(cookies_path)
                 
                 progress_bar.progress(100)
-                status.text("Narration complete!")
+                status.text("✅ Narration complete!")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                st.success("Your narrated video is ready. Download it below:")
+                st.success("Your narrated video is ready. Watch it below and download it to share.")
                 st.video(final_output, format="video/mp4")
-                
-                # Provide download button
                 with open(final_output, "rb") as f:
-                    st.download_button("📥 Download Narrated Video", f, file_name="color_game_narrated.mp4", mime="video/mp4")
+                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="color_game_narrated.mp4", mime="video/mp4", use_container_width=True)
                 
             except Exception as e:
                 progress_bar.empty()
                 status.empty()
-                st.error(f"Pipeline error: {str(e)}")
+                st.error(f"Error: {str(e)}")
                 st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
@@ -544,7 +456,7 @@ with col_right:
 st.markdown(
     """
     <div class="footer-white-right">
-        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | AI-Powered Voice Narration.
+        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | AI Voice Narration.
     </div>
     """,
     unsafe_allow_html=True
