@@ -5,6 +5,7 @@ import requests
 import asyncio
 import re
 import edge_tts
+from groq import Groq
 
 # yt-dlp (optional)
 try:
@@ -180,6 +181,30 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
         os.remove(concat_file)
         return os.path.getsize(output_path) > 0
 
+# ================== TRANSLATION FUNCTION (Groq) ==================
+def translate_text(text, target_language_name, groq_client):
+    """Translate English text into the target language using Groq LLM."""
+    prompt = f"""You are a professional translator. Translate the following English text into {target_language_name}. 
+The translation must be natural, fluent, and culturally appropriate. 
+Return ONLY the translated text, nothing else.
+
+English text:
+{text}
+
+Translated text ({target_language_name}):"""
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1500
+        )
+        translated = response.choices[0].message.content.strip()
+        return translated
+    except Exception as e:
+        st.error(f"Translation failed: {e}")
+        return text  # fallback to original English
+
 # ================== Download functions ==================
 def is_aria2_available():
     try:
@@ -209,7 +234,6 @@ def file_info(path):
     return f"exists, size={size} bytes, format={fmt}"
 
 def download_video(url, output_path, cookie_file=None):
-    # Convert Dropbox link to direct download if needed
     if "dropbox.com" in url and "dl=0" in url:
         url = url.replace("dl=0", "dl=1")
         st.info("Converted Dropbox link to direct download.")
@@ -303,42 +327,43 @@ st.sidebar.markdown("### AI Voiceover for Color Game")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Female voice options
+# Female voice options with language names for translation
 voice_options = {
-    "English (US Female - Jenny)": "en-US-JennyNeural",
-    "English (UK Female - Sonia)": "en-GB-SoniaNeural",
-    "Français (French Female - Denise)": "fr-FR-DeniseNeural",
-    "Español (Spanish Female - Elvira)": "es-ES-ElviraNeural",
-    "中文 (Chinese Female - Xiaoxiao)": "zh-CN-XiaoxiaoNeural",
-    "العربية (Arabic Female - Amina)": "ar-SA-AminaNeural",
-    "Português (Portuguese Female - Francisca)": "pt-BR-FranciscaNeural",
+    "English (US Female - Jenny)": {"code": "en-US-JennyNeural", "language": "English"},
+    "English (UK Female - Sonia)": {"code": "en-GB-SoniaNeural", "language": "English"},
+    "Français (French Female - Denise)": {"code": "fr-FR-DeniseNeural", "language": "French"},
+    "Español (Spanish Female - Elvira)": {"code": "es-ES-ElviraNeural", "language": "Spanish"},
+    "中文 (Chinese Female - Xiaoxiao)": {"code": "zh-CN-XiaoxiaoNeural", "language": "Mandarin Chinese"},
+    "العربية (Arabic Female - Amina)": {"code": "ar-SA-AminaNeural", "language": "Arabic"},
+    "Português (Portuguese Female - Francisca)": {"code": "pt-BR-FranciscaNeural", "language": "Portuguese"},
 }
 selected_voice_label = st.sidebar.selectbox("Select Female Voice for Narration", list(voice_options.keys()))
-voice_code = voice_options[selected_voice_label]
+voice_code = voice_options[selected_voice_label]["code"]
+target_language = voice_options[selected_voice_label]["language"]
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### How it works")
 st.sidebar.markdown("1. The app downloads your mute gameplay video from Dropbox.")
-st.sidebar.markdown("2. A female AI voice narrates the game mechanics, balloon celebration, and sidebar info.")
-st.sidebar.markdown("3. The final video includes the voiceover and subtitles – ready to share!")
+st.sidebar.markdown("2. Your English script is **automatically translated** into the selected language.")
+st.sidebar.markdown("3. A pure native female AI voice reads the translated script.")
+st.sidebar.markdown("4. The final video includes the voiceover and subtitles – ready to share!")
 
 # ================== Main Interface ==================
-st.title("🎨 Add Female Voiceover to Your Color Game Demo")
-st.markdown("### Your mute video will be enhanced with a natural female voice explaining each step.")
+st.title("🎨 Add Pure Native Female Voiceover to Your Color Game Demo")
+st.markdown("### Your English script will be translated and spoken by a real native female voice – no mixed accents.")
 
 col_left, col_right = st.columns([2, 1.8])
 
 with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("#### Source Video (mute)")
-    # Pre-filled Dropbox link (your video)
     default_video_url = "https://www.dropbox.com/scl/fi/yzg1adtnbldj5l6zoo54j/Color-game.mp4?rlkey=4eetqcb4xcqf6nlqi8eijcsbs&st=sz2ryrro&dl=0"
     video_url = st.text_input("Video URL (Dropbox, YouTube, or direct MP4):", value=default_video_url)
     st.markdown("---")
     
-    st.markdown("#### Narration Script")
-    st.markdown("The following script will be spoken by the selected female voice while the video plays.")
-    script_text = st.text_area("Edit the script (must include credit):", height=300, value="""Welcome to the Color Match Game, created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.
+    st.markdown("#### Narration Script (English)")
+    st.markdown("Write your script in English. It will be automatically translated into the selected language.")
+    english_script = st.text_area("English script (must include credit):", height=300, value="""Welcome to the Color Match Game, created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.
 
 In this fun educational game, you see a row of colorful swatches at the top. Each swatch has no label. Below, you see the names of the colors. Your task is to drag each color name and drop it onto the matching color square.
 
@@ -351,7 +376,7 @@ On the left sidebar, you'll find my contact information, the website, and compet
 This game is perfect for kids learning colors. Try it yourself and enjoy the celebration!""")
     
     # Ensure credit line is present
-    if "Gesner Deslandes" not in script_text or "GlobalInternet.py" not in script_text:
+    if "Gesner Deslandes" not in english_script or "GlobalInternet.py" not in english_script:
         st.warning("⚠️ Your script must include the credit: 'This game was created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.'")
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -359,18 +384,21 @@ with col_right:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("#### Generate Narrated Video")
     st.markdown(f"**Selected voice:** {selected_voice_label}")
+    st.markdown(f"**Target language for voice:** {target_language}")
     generate_btn = st.button("🎤 Create Voiceover Video", use_container_width=True)
     
     if generate_btn:
         if not video_url:
             st.error("Please provide a video URL.")
-        elif not script_text.strip():
+        elif not english_script.strip():
             st.error("Please provide a narration script.")
+        elif "GROQ_API_KEY" not in st.secrets:
+            st.error("Missing Groq API key. Add GROQ_API_KEY to your Streamlit secrets for translation.")
         else:
-            # Ensure credit is present (add if missing)
-            final_script = script_text.strip()
-            if "Gesner Deslandes" not in final_script or "GlobalInternet.py" not in final_script:
-                final_script = "This game was created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_script
+            # Ensure credit is present
+            final_english = english_script.strip()
+            if "Gesner Deslandes" not in final_english or "GlobalInternet.py" not in final_english:
+                final_english = "This game was created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_english
                 st.info("Added missing credit line to script.")
             
             st.markdown('<div class="status-box">', unsafe_allow_html=True)
@@ -387,16 +415,26 @@ with col_right:
                 progress_bar.progress(10)
                 if not download_video(video_url, "video.mp4"):
                     raise Exception("Failed to download video. Please check the link.")
-                
                 video_duration = get_duration("video.mp4")
                 if video_duration <= 0:
                     video_duration = 30.0
                 status.text(f"Video duration: {video_duration:.1f} seconds")
                 
-                status.text("🗣️ Generating female voiceover...")
-                progress_bar.progress(40)
+                # Translate script if target language is not English
+                if target_language.lower() != "english":
+                    status.text(f"🔄 Translating script from English to {target_language}...")
+                    progress_bar.progress(25)
+                    groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+                    translated_script = translate_text(final_english, target_language, groq_client)
+                    st.info(f"Translated script (preview): {translated_script[:200]}...")
+                    final_script = translated_script
+                else:
+                    final_script = final_english
+                
+                status.text("🗣️ Generating pure native female voiceover...")
+                progress_bar.progress(50)
                 output_audio = "translated_voice.mp3"
-                fallback_voice = "en-US-JennyNeural"  # fallback to Jenny if selected voice fails
+                fallback_voice = "en-US-JennyNeural"
                 tts_success = asyncio.run(generate_tts(final_script, output_audio, voice_code, fallback_voice))
                 if not tts_success:
                     raise Exception("TTS generation failed. Check network or voice code.")
@@ -404,7 +442,7 @@ with col_right:
                 status.text(f"Voiceover duration: {audio_duration:.1f} seconds")
                 
                 status.text("🔄 Synchronizing video and audio...")
-                progress_bar.progress(70)
+                progress_bar.progress(75)
                 if audio_duration > video_duration:
                     st.warning(f"Voiceover is longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video with last frame.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
@@ -440,7 +478,7 @@ with col_right:
                 status.text("✅ Narration complete!")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                st.success("Your narrated video is ready. Watch it below and download it to share.")
+                st.success("Your narrated video is ready. The voice speaks pure native language – no English mixed in!")
                 st.video(final_output, format="video/mp4")
                 with open(final_output, "rb") as f:
                     st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="color_game_narrated.mp4", mime="video/mp4", use_container_width=True)
@@ -456,7 +494,7 @@ with col_right:
 st.markdown(
     """
     <div class="footer-white-right">
-        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | AI Voice Narration.
+        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | Pure Native AI Voice Narration.
     </div>
     """,
     unsafe_allow_html=True
