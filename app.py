@@ -348,7 +348,7 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
     return False
 
-# ================== Sidebar ==================
+# ================== Sidebar with Female Voices ==================
 st.sidebar.markdown("## GlobalInternet.py")
 st.sidebar.markdown("### AI Multi-Language Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
@@ -382,278 +382,128 @@ with st.sidebar.expander("📖 How to get cookies.txt (Edge)"):
 
 st.sidebar.markdown("---")
 
+# Updated voice options with FEMALE voices
 voice_options = {
-    "Français (Native French Male - Henri)": "fr-FR-HenriNeural",
-    "Español (Native Spanish Male - Alvaro)": "es-ES-AlvaroNeural",
-    "English (Native US Male - Christopher)": "en-US-ChristopherNeural",
-    "中文 (Chinese Mandarin Male - Yunxi)": "zh-CN-YunxiNeural",
-    "العربية (Arabic Male - Hamed)": "ar-SA-HamedNeural",
-    "Português (Brazilian Portuguese Male - Antonio)": "pt-BR-AntonioNeural",
-    "Jamaican Patois (English-based Creole)": "en-US-ChristopherNeural"
+    "English (US Female - Jenny)": "en-US-JennyNeural",
+    "English (UK Female - Sonia)": "en-GB-SoniaNeural",
+    "Français (French Female - Denise)": "fr-FR-DeniseNeural",
+    "Español (Spanish Female - Elvira)": "es-ES-ElviraNeural",
+    "中文 (Chinese Female - Xiaoxiao)": "zh-CN-XiaoxiaoNeural",
+    "العربية (Arabic Female - Amina)": "ar-SA-AminaNeural",
+    "Português (Portuguese Female - Francisca)": "pt-BR-FranciscaNeural",
+    "Jamaican Patois (English Female)": "en-US-JennyNeural"   # fallback
 }
-selected_voice_label = st.sidebar.selectbox("Select Native Overdub Language Layer", list(voice_options.keys()))
+selected_voice_label = st.sidebar.selectbox("Select Female Voice Overdub", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]
 
-st.title("AI Video Voice Translation Engine")
-st.markdown("### On-Demand Multimedia Linguistic Overdubbing Platform")
+st.title("🎨 AI Voiceover for Your Color Game Demo")
+st.markdown("### Turn your mute gameplay video into a narrated tutorial with a natural female voice.")
 st.markdown("---")
 
 col_left, col_right = st.columns([2, 1.8])
 
 with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-    st.markdown("<h4>Source Input Interface</h4>", unsafe_allow_html=True)
-    input_method = st.radio(
-        "Select Input Source Layer:",
-        ["Upload Video from this Computer (.MP4)", 
-         "Paste Video Link (YouTube, Dropbox, Google Drive, Vimeo, direct MP4)",
-         "🎙️ AI Voiceover for Silent Video (Describe Software)"]
-    )
-    video_ready = False
-    download_url = ""
-    uploaded_file = None
-    custom_script = None
-    generate_desc = False
+    st.markdown("<h4>Source Video</h4>", unsafe_allow_html=True)
+    
+    # Pre‑fill the Dropbox link (mute demo video)
+    default_url = "https://www.dropbox.com/scl/fi/yzg1adtnbldj5l6zoo54j/Color-game.mp4?rlkey=4eetqcb4xcqf6nlqi8eijcsbs&st=sz2ryrro&dl=0"
+    video_url = st.text_input("Paste your mute video link (Dropbox, YouTube, direct MP4):", value=default_url)
+    
+    st.markdown("---")
+    st.markdown("<h4>Voiceover Script</h4>", unsafe_allow_html=True)
+    script_option = st.radio("Script source:", ["AI Auto-generate description of the color game", "Write my own script"])
+    
+    if script_option == "Write my own script":
+        custom_script = st.text_area("Enter your voiceover text (in the language of the selected female voice):", height=200,
+            placeholder="Example: Welcome to the Color Match Game...")
+    else:
+        # Use a pre‑written script that describes the game exactly as shown in the video
+        auto_script = """Welcome to the Color Match Game, created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.
 
-    if input_method == "Paste Video Link (YouTube, Dropbox, Google Drive, Vimeo, direct MP4)":
-        raw_url = st.text_input("Paste Video Link Here:").strip()
-        if raw_url:
-            if not (raw_url.startswith("http://") or raw_url.startswith("https://")):
-                st.error("Please enter a valid URL (starts with http:// or https://)")
-            else:
-                if "dropbox.com" in raw_url:
-                    if "dl=0" in raw_url:
-                        raw_url = raw_url.replace("dl=0", "dl=1")
-                        st.info("Converted Dropbox link to direct download (dl=1).")
-                    elif "?dl=" not in raw_url:
-                        raw_url = raw_url + "?dl=1"
-                        st.info("Added ?dl=1 to Dropbox link.")
-                download_url = raw_url
-                video_ready = True
-                try:
-                    st.video(raw_url)
-                except:
-                    st.info("Link accepted – will be downloaded during processing.")
-    elif input_method == "Upload Video from this Computer (.MP4)":
-        uploaded_file = st.file_uploader("Choose a video file:", type=["mp4", "mov", "mkv", "avi"])
-        if uploaded_file is not None:
-            st.video(uploaded_file)
-            video_ready = True
-    else:  # Voiceover mode
-        st.markdown("**🎙️ Create AI voiceover for your silent demo video**")
-        raw_url = st.text_input("Paste your demo video link (no audio):").strip()
-        if raw_url:
-            if not (raw_url.startswith("http://") or raw_url.startswith("https://")):
-                st.error("Please enter a valid URL (starts with http:// or https://)")
-            else:
-                if "dropbox.com" in raw_url:
-                    if "dl=0" in raw_url:
-                        raw_url = raw_url.replace("dl=0", "dl=1")
-                        st.info("Converted Dropbox link to direct download (dl=1).")
-                    elif "?dl=" not in raw_url:
-                        raw_url = raw_url + "?dl=1"
-                        st.info("Added ?dl=1 to Dropbox link.")
-                download_url = raw_url
-                video_ready = True
-                try:
-                    st.video(raw_url)
-                except:
-                    st.info("Video link accepted.")
-        
-        st.markdown("**Voiceover Script**")
-        script_option = st.radio("Select script source:", ["AI Auto-generate description", "Write my own script"])
-        if script_option == "Write my own script":
-            custom_script = st.text_area("Enter your voiceover text (in the selected language):", height=150,
-                placeholder="Example: This software shows how to diagnose a Samsung tablet circuit...")
-        else:
-            generate_desc = True
-            st.info("AI will generate a professional description of the Circuit Diagnostics & Hardware Re‑engineering software.")
+In this fun educational game, you see a row of colorful swatches at the top. Each swatch has no label. Below, you see the names of the colors. Your task is to drag each color name and drop it onto the matching color square.
+
+When you make a correct match, you hear a cheerful bingo sound and the swatch gets a golden checkmark. If you drop the wrong name, you hear an error sound – but don't worry, you can try again.
+
+Watch as I match all eight colors: red, orange, yellow, green, blue, purple, pink, and brown. After the last correct match, balloons fly across the screen and a victory fanfare plays. The game also includes a reset button to shuffle the colors and play again.
+
+On the left sidebar, you'll find my contact information, the website, and competitive pricing to get the full source code delivered by email.
+
+This game is perfect for kids learning colors. Try it yourself and enjoy the celebration!"""
+        st.info("AI will use the script below (you can edit it if needed):")
+        custom_script = st.text_area("Edit the auto-generated script:", value=auto_script, height=250)
     
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-    st.markdown("<h4>Neural Pipeline Controls</h4>", unsafe_allow_html=True)
-    process_btn = st.button("Execute Voice Sync Overdub & Captions")
-
+    st.markdown("<h4>Generate Narrated Video</h4>", unsafe_allow_html=True)
+    
+    process_btn = st.button("🎤 Generate Female Voiceover Video", use_container_width=True)
+    
     if process_btn:
-        if not video_ready:
-            st.error("Error: Please provide a video file or a valid link.")
+        if not video_url:
+            st.error("Please provide a video link.")
+        elif not custom_script.strip():
+            st.error("Please provide a script or use auto-generation.")
         elif "GROQ_API_KEY" not in st.secrets:
             st.error("Missing Groq API key. Add GROQ_API_KEY to your Streamlit secrets.")
         else:
             st.markdown('<div class="status-box">', unsafe_allow_html=True)
-            st.markdown("<h5>System Pipeline Progress Status</h5>", unsafe_allow_html=True)
+            st.markdown("<h5>Pipeline Progress</h5>", unsafe_allow_html=True)
             status = st.empty()
             progress_bar = st.progress(0)
-
+            
             try:
+                # Clean previous files
                 for f in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4"]:
                     if os.path.exists(f):
                         os.remove(f)
-
-                status.text("Downloading / reading video...")
+                
+                status.text("Downloading video...")
                 progress_bar.progress(10)
-                if uploaded_file:
-                    with open("video.mp4", "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                else:
-                    if not download_video(download_url, "video.mp4", cookie_file=cookies_path):
-                        raise Exception("Failed to download video. Please check the link.")
-
-                if not os.path.exists("video.mp4") or os.path.getsize("video.mp4") == 0:
-                    raise Exception("Video file is empty or could not be saved.")
-
+                if not download_video(video_url, "video.mp4", cookie_file=cookies_path):
+                    raise Exception("Failed to download video. Check the link and cookies if needed.")
+                
                 video_duration = get_duration("video.mp4")
                 if video_duration <= 0:
                     video_duration = 30.0
-
-                client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-
-                if input_method == "🎙️ AI Voiceover for Silent Video (Describe Software)":
-                    status.text("Preparing voiceover script...")
-                    progress_bar.progress(25)
-                    
-                    if generate_desc:
-                        # Determine target language instruction (neutral)
-                        if "Français" in selected_voice_label:
-                            lang_name = "French"
-                        elif "Español" in selected_voice_label:
-                            lang_name = "Spanish"
-                        elif "中文" in selected_voice_label:
-                            lang_name = "Mandarin Chinese (Simplified)"
-                        elif "العربية" in selected_voice_label:
-                            lang_name = "Modern Standard Arabic"
-                        elif "Português" in selected_voice_label:
-                            lang_name = "Brazilian Portuguese"
-                        else:
-                            lang_name = "English"
-
-                        desc_prompt = f"""You are a professional AI voiceover script writer. Write a clear, engaging voiceover script in {lang_name} for a demonstration video of the software "Circuit Diagnostics & Hardware Re‑engineering". The viewer will see a screen recording where a user interacts with the app.
-
-IMPORTANT: 
-- Do not mention that you are choosing a specific language like French. Instead, say: "You can choose any language you prefer" or similar.
-- The script must include the credit: "This software was built by Gesner Deslandes at GlobalInternet.py."
-- The tone should be professional, confident, and suitable for a product demo.
-
-Software features to describe (match the visual actions in the video):
-- Language selection: show how the user selects a language from the sidebar (e.g., English, French, Spanish, etc.)
-- Upload a Samsung tablet circuit image for visual damage analysis.
-- Enable Demo Mode and load pre‑set readings.
-- Run the full diagnostic to get a fault summary, actions, and recommended tools.
-- Ask the redesign chatbot: "How can I use this tablet circuit to build a new drone hardware circuit?" and show the AI's answer.
-
-The script should flow naturally as the mouse moves. Keep the length around 200-300 words (about 1-2 minutes of speech). Output only the script text, no extra commentary.
-"""
-                        response = client.chat.completions.create(
-                            model="llama-3.1-8b-instant",
-                            messages=[{"role": "user", "content": desc_prompt}],
-                            temperature=0.4,
-                            max_tokens=800
-                        )
-                        localized_text = response.choices[0].message.content.strip()
-                        # Ensure the credit is present (if not, prepend)
-                        if "Gesner Deslandes" not in localized_text or "GlobalInternet.py" not in localized_text:
-                            localized_text = "This software was built by Gesner Deslandes at GlobalInternet.py. " + localized_text
-                        st.info("AI-generated script ready.")
-                    else:
-                        localized_text = custom_script.strip()
-                        if not localized_text:
-                            raise Exception("Please provide a custom script or enable auto-generation.")
-                else:
-                    # Original translation pipeline
-                    status.text("Extracting audio...")
-                    progress_bar.progress(25)
-                    subprocess.run([
-                        "ffmpeg", "-i", "video.mp4", "-vn",
-                        "-acodec", "libmp3lame", "-q:a", "2", "extracted_audio.mp3", "-y"
-                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    if not os.path.exists("extracted_audio.mp3") or os.path.getsize("extracted_audio.mp3") == 0:
-                        raise Exception("Failed to extract audio from video.")
-
-                    status.text("Transcribing original audio...")
-                    progress_bar.progress(40)
-                    with open("extracted_audio.mp3", "rb") as audio_file:
-                        transcription = client.audio.translations.create(
-                            file=("extracted_audio.mp3", audio_file.read()),
-                            model="whisper-large-v3",
-                            response_format="text"
-                        )
-                    base_text = str(transcription).strip()
-
-                    status.text("Localizing text...")
-                    progress_bar.progress(55)
-                    if "Jamaican Patois" in selected_voice_label:
-                        lang_instr = "authentic Jamaican Patois"
-                    elif "Français" in selected_voice_label:
-                        lang_instr = "natural French"
-                    elif "Español" in selected_voice_label:
-                        lang_instr = "natural Spanish"
-                    elif "中文" in selected_voice_label:
-                        lang_instr = "natural Mandarin Chinese (Simplified)"
-                    elif "العربية" in selected_voice_label:
-                        lang_instr = "natural Modern Standard Arabic"
-                    elif "Português" in selected_voice_label:
-                        lang_instr = "natural Brazilian Portuguese"
-                    else:
-                        lang_instr = "natural US English"
-                    system_prompt = f"""You are a voiceover localizer. Rewrite the transcript into fluid, natural spoken prose.
-Target style: {lang_instr}
-Rules:
-- Keep the original meaning exactly.
-- Remove stiff grammar, literal translations, and repetition.
-- Return ONLY the polished text, nothing else."""
-                    response = client.chat.completions.create(
-                        model="llama-3.1-8b-instant",
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": base_text}
-                        ],
-                        temperature=0.2,
-                        max_tokens=800,
-                    )
-                    localized_text = response.choices[0].message.content.strip()
-                    localized_text = clean_repetitions(localized_text)
-                    st.info(f"Localized script: \"{localized_text[:300]}...\"")
-
-                status.text("Generating voiceover (chunked for long text)...")
-                progress_bar.progress(70)
+                
+                status.text("Generating voiceover with female AI voice...")
+                progress_bar.progress(40)
+                
+                # Use the custom script directly (no extra AI call needed)
+                localized_text = custom_script.strip()
+                # Ensure credit line is present
+                if "Gesner Deslandes" not in localized_text or "GlobalInternet.py" not in localized_text:
+                    localized_text = "This game was created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + localized_text
+                
+                status.text("Synthesizing speech...")
+                progress_bar.progress(60)
                 output_audio = "translated_voice.mp3"
-                if "Français" in selected_voice_label:
-                    fallback = "fr-FR-HenriNeural"
-                elif "Español" in selected_voice_label:
-                    fallback = "es-ES-AlvaroNeural"
-                elif "中文" in selected_voice_label:
-                    fallback = "zh-CN-XiaoxiaoNeural"
-                else:
-                    fallback = "en-US-ChristopherNeural"
-
+                # Define fallback voice (same as selected if female, else Jenny)
+                fallback = "en-US-JennyNeural"
                 tts_success = asyncio.run(generate_tts(localized_text, output_audio, voice_code, fallback))
                 if not tts_success:
                     raise Exception("TTS generation failed.")
-                if not os.path.exists(output_audio) or os.path.getsize(output_audio) == 0:
-                    raise Exception("TTS produced an empty file.")
                 audio_duration = get_duration(output_audio)
-
+                
                 status.text("Synchronizing video and audio...")
-                progress_bar.progress(85)
+                progress_bar.progress(80)
                 if audio_duration > video_duration:
                     st.warning(f"Voiceover longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
-                    working_audio = output_audio
                     final_duration = audio_duration
                 else:
-                    st.info(f"Voiceover shorter ({audio_duration:.1f}s). Original audio will be replaced.")
                     working_video = "video.mp4"
-                    working_audio = output_audio
                     final_duration = video_duration
-
+                
                 generate_srt_file(localized_text, final_duration, "subtitles.srt")
-
+                
                 status.text("Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
                 cmd = [
-                    "ffmpeg", "-i", working_video, "-i", working_audio,
+                    "ffmpeg", "-i", working_video, "-i", output_audio,
                     "-map", "0:v:0", "-map", "1:a:0",
                     "-vf", "subtitles=subtitles.srt",
                     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
@@ -665,34 +515,36 @@ Rules:
                 if result.returncode != 0:
                     st.error(f"FFmpeg error: {result.stderr}")
                     raise Exception("Mixing failed.")
-
-                if not os.path.exists(final_output) or os.path.getsize(final_output) == 0:
-                    raise Exception("Final output file is empty.")
-
+                
                 for tmp in ["video.mp4", "extracted_audio.mp3", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
                 if cookies_path and os.path.exists(cookies_path):
                     os.remove(cookies_path)
-
+                
                 progress_bar.progress(100)
-                status.text("All systems harmonized! Video ready.")
+                status.text("Narration complete!")
                 st.markdown('</div>', unsafe_allow_html=True)
-
-                st.success("Final video created successfully:")
+                
+                st.success("Your narrated video is ready. Download it below:")
                 st.video(final_output, format="video/mp4")
-
+                
+                # Provide download button
+                with open(final_output, "rb") as f:
+                    st.download_button("📥 Download Narrated Video", f, file_name="color_game_narrated.mp4", mime="video/mp4")
+                
             except Exception as e:
                 progress_bar.empty()
                 status.empty()
                 st.error(f"Pipeline error: {str(e)}")
                 st.markdown('</div>', unsafe_allow_html=True)
+    
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown(
     """
     <div class="footer-white-right">
-        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | Advanced Cognitive Systems Integration.
+        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | AI-Powered Voice Narration.
     </div>
     """,
     unsafe_allow_html=True
