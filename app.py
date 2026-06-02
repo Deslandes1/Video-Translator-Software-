@@ -17,7 +17,7 @@ except ImportError:
 
 # ================== Page Config ==================
 st.set_page_config(
-    page_title="Color Game AI Voiceover | GlobalInternet.py",
+    page_title="BonardEnterprise AI Voiceover | GlobalInternet.py",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -323,7 +323,7 @@ def download_video(url, output_path, cookie_file=None):
 
 # ================== Sidebar with Female Voices ==================
 st.sidebar.markdown("## GlobalInternet.py")
-st.sidebar.markdown("### AI Voiceover for Color Game")
+st.sidebar.markdown("### AI Voiceover for BonardEnterprise Demo")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
@@ -343,13 +343,13 @@ target_language = voice_options[selected_voice_label]["language"]
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### How it works")
-st.sidebar.markdown("1. The app downloads your mute gameplay video from Dropbox.")
+st.sidebar.markdown("1. The app downloads your mute demo video from Dropbox.")
 st.sidebar.markdown("2. Your English script is **automatically translated** into the selected language.")
 st.sidebar.markdown("3. A pure native female AI voice reads the translated script.")
 st.sidebar.markdown("4. The final video includes the voiceover and subtitles – ready to share!")
 
 # ================== Main Interface ==================
-st.title("🎨 Add Pure Native Female Voiceover to Your Color Game Demo")
+st.title("🏢 Add a Native Female Voiceover to Your BonardEnterprise Demo")
 st.markdown("### Your English script will be translated and spoken by a real native female voice – no mixed accents.")
 
 col_left, col_right = st.columns([2, 1.8])
@@ -357,27 +357,32 @@ col_left, col_right = st.columns([2, 1.8])
 with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("#### Source Video (mute)")
-    default_video_url = "https://www.dropbox.com/scl/fi/yzg1adtnbldj5l6zoo54j/Color-game.mp4?rlkey=4eetqcb4xcqf6nlqi8eijcsbs&st=sz2ryrro&dl=0"
+    # The user's BonardEnterprise video link
+    default_video_url = "https://www.dropbox.com/scl/fi/c2p07a5kwrwadrmhxt8wv/Boad.mp4?rlkey=v4lgbtr4oyanmsfk21n9ujv2a&st=zmnluey5&dl=0"
     video_url = st.text_input("Video URL (Dropbox, YouTube, or direct MP4):", value=default_video_url)
     st.markdown("---")
     
     st.markdown("#### Narration Script (English)")
     st.markdown("Write your script in English. It will be automatically translated into the selected language.")
-    english_script = st.text_area("English script (must include credit):", height=300, value="""Welcome to the Color Match Game, created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.
+    
+    # Pre-filled script as per your detailed instructions
+    default_script = """Welcome to the official website of BonardEnterprise, built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py.
 
-In this fun educational game, you see a row of colorful swatches at the top. Each swatch has no label. Below, you see the names of the colors. Your task is to drag each color name and drop it onto the matching color square.
+In this video, we will give you a quick tour of the website's key features. First, you'll see the beautifully designed main page. As I scroll up and down, you can get a feel for the modern and professional layout. The main page showcases the latest products from BonardEnterprise.
 
-When you make a correct match, you hear a cheerful bingo sound and the swatch gets a golden checkmark. If you drop the wrong name, you hear an error sound – but don't worry, you can try again.
+Now, let's take a look at a product detail page. Here, you will find a detailed description of the product, along with its pricing. This is where visitors can learn everything about the product. I'm now clicking on the 'Comment Section'. This interactive area allows visitors to leave their feedback, ask questions, or share their experience directly under the product. This fosters a great community around the brand.
 
-Watch as I match all eight colors: red, orange, yellow, green, blue, purple, pink, and brown. After the last correct match, balloons fly across the screen and a victory fanfare plays. The game also includes a reset button to shuffle the colors and play again.
+Next, I will click on the toggle sidebar on the left. As you can see, a menu slides out. Here, visitors can select their preferred language from three options: English, French, and Spanish. This feature makes the website accessible to a wider, international audience.
 
-On the left sidebar, you'll find my contact information, the website, and competitive pricing to get the full source code delivered by email.
+This website was built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py. If you need a professional, modern, and fully functional website for your business, please get in touch with our company, GlobalInternet.py. We are the best at what we do! We deliver top-quality web solutions.
 
-This game is perfect for kids learning colors. Try it yourself and enjoy the celebration!""")
+To connect with us, simply visit the BonardEnterprise website. You will find all our contact information, including our email address and office phone number, right there. Thank you for watching."""
+    
+    english_script = st.text_area("English script (must include credit):", height=400, value=default_script)
     
     # Ensure credit line is present
     if "Gesner Deslandes" not in english_script or "GlobalInternet.py" not in english_script:
-        st.warning("⚠️ Your script must include the credit: 'This game was created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.'")
+        st.warning("⚠️ Your script must include the credit: 'Built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.'")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
@@ -398,7 +403,7 @@ with col_right:
             # Ensure credit is present
             final_english = english_script.strip()
             if "Gesner Deslandes" not in final_english or "GlobalInternet.py" not in final_english:
-                final_english = "This game was created by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_english
+                final_english = "This website was built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_english
                 st.info("Added missing credit line to script.")
             
             st.markdown('<div class="status-box">', unsafe_allow_html=True)
@@ -481,7 +486,7 @@ with col_right:
                 st.success("Your narrated video is ready. The voice speaks pure native language – no English mixed in!")
                 st.video(final_output, format="video/mp4")
                 with open(final_output, "rb") as f:
-                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="color_game_narrated.mp4", mime="video/mp4", use_container_width=True)
+                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="bonard_demo_narrated.mp4", mime="video/mp4", use_container_width=True)
                 
             except Exception as e:
                 progress_bar.empty()
