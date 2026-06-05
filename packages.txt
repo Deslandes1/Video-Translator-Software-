@@ -1,2 +1,31 @@
 ffmpeg
-aria2
+```eof
+
+### 2. Simplify `app.py`
+Now that `packages.txt` handles the installation, you can simplify your `app.py` drastically. You don't need the complex path-finding logic anymore. Just use `shutil.which("ffmpeg")` and it will be available immediately.
+
+Here is the cleaned-up version of your initialization block:
+
+```python:app.py
+# ... existing code ...
+import shutil
+
+# ================== FFmpeg Setup ==================
+# Since we now use packages.txt, ffmpeg is installed system-wide.
+FFMPEG_PATH = shutil.which("ffmpeg")
+FFPROBE_PATH = shutil.which("ffprobe")
+
+if not FFMPEG_PATH or not FFPROBE_PATH:
+    st.error("❌ FFmpeg/ffprobe not found. Ensure 'packages.txt' is in your root folder and redeploy.")
+    st.stop()
+
+os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_PATH
+# ... existing code ...
+```eof
+
+### Why this is faster:
+*   **System-level installation:** By using `packages.txt`, Streamlit Cloud installs FFmpeg at the server level (like a standard Linux utility). 
+*   **Cleaner Python code:** You don't have to write "fallback" logic (e.g., checking `/usr/bin/ffmpeg` manually). The binary is simply *there*.
+*   **Reduced overhead:** The app won't perform expensive disk scans for binary locations every time the page refreshes.
+
+After adding `packages.txt` to your repo and updating `app.py`, perform a "Reboot" or "Redeploy" on your Streamlit Cloud dashboard. You will see the logs indicate the system is installing the package, and subsequent refreshes will be significantly snappier!
