@@ -1,5 +1,1 @@
-streamlit
-groq
-edge-tts
-yt-dlp
-requests
+ffmpeg-static
