@@ -181,21 +181,25 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
         os.remove(concat_file)
         return os.path.getsize(output_path) > 0
 
-# ================== Function to generate chime sound ==================
-def generate_chime(output_path, duration=0.8, frequency=880):
-    """Generate a short chime sound using ffmpeg (sine wave with fade out)."""
+# ================== IMPROVED CHIME GENERATION ==================
+def generate_chime(output_path, duration=0.6):
+    """Generate a two-tone pleasant chime (ding) with fade in/out."""
+    # Two sine waves: first 880 Hz, then 1046 Hz (C5 and A5)
+    # Using a single complex filter: aeval to create two tones sequentially
+    # Alternatively, generate a short beep with a pitch bend? Let's keep it simple.
+    # We'll generate a 0.6 sec audio: first 0.3 sec 880Hz, then 0.3 sec 1046Hz, with fade out.
     cmd = [
-        "ffmpeg", "-f", "lavfi", "-i", f"sine=f={frequency}:d={duration}",
-        "-af", f"afade=t=out:st={duration-0.3}:d=0.3,volume=0.5",
+        "ffmpeg", "-f", "lavfi", "-i",
+        f"aevalsrc=0.8*sin(2*PI*880*t)*(t<0.3) + 0.8*sin(2*PI*1046*(t-0.3))*(t>=0.3):d={duration}",
+        "-af", f"afade=t=in:st=0:d=0.05,afade=t=out:st={duration-0.1}:d=0.1,volume=0.8",
         "-ac", "2", "-ar", "44100", "-c:a", "aac", "-b:a", "128k",
         output_path, "-y"
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return os.path.exists(output_path)
+    return os.path.exists(output_path) and os.path.getsize(output_path) > 0
 
-def append_sound_to_audio(original_audio, chime_audio, output_audio, silence_gap=0.2):
+def append_sound_to_audio(original_audio, chime_audio, output_audio, silence_gap=0.1):
     """Append a chime after a short silence to the original audio."""
-    # Create a temporary silence file
     silence_file = "temp_silence.mp3"
     cmd_silence = [
         "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:d={silence_gap}",
@@ -204,7 +208,6 @@ def append_sound_to_audio(original_audio, chime_audio, output_audio, silence_gap
     ]
     subprocess.run(cmd_silence, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    # Create concat list: original + silence + chime
     concat_list = "concat_list.txt"
     with open(concat_list, "w") as f:
         f.write(f"file '{original_audio}'\n")
@@ -217,7 +220,6 @@ def append_sound_to_audio(original_audio, chime_audio, output_audio, silence_gap
     ]
     subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    # Cleanup
     for f in [silence_file, concat_list]:
         if os.path.exists(f):
             os.remove(f)
@@ -382,7 +384,7 @@ st.sidebar.markdown("### How it works")
 st.sidebar.markdown("1. The app downloads your silent demo video from Dropbox.")
 st.sidebar.markdown("2. Your English script is **automatically translated** into the selected language.")
 st.sidebar.markdown("3. A pure native female AI voice reads the translated script.")
-st.sidebar.markdown("4. A pleasant **success chime** is added at the end.")
+st.sidebar.markdown("4. A **pleasant two-tone chime** (ding) is added at the end.")
 st.sidebar.markdown("5. The final video includes the voiceover, chime, and subtitles – ready to share!")
 
 # ================== Main Interface ==================
@@ -480,16 +482,21 @@ with col_right:
                 status.text(f"Voiceover duration: {audio_duration:.1f} seconds")
                 
                 # Generate chime and append to voiceover
-                status.text("🔔 Adding ending chime...")
+                status.text("🔔 Generating ending chime...")
                 progress_bar.progress(55)
-                generate_chime("chime.mp3", duration=0.8, frequency=880)
-                if not append_sound_to_audio(output_audio, "chime.mp3", "voice_with_chime.mp3", silence_gap=0.2):
-                    st.warning("Failed to append chime, using original voiceover only.")
+                if not generate_chime("chime.mp3"):
+                    st.warning("Chime generation failed, proceeding without chime.")
                     final_audio = output_audio
                 else:
-                    final_audio = "voice_with_chime.mp3"
-                    audio_duration = get_duration(final_audio)
-                    status.text(f"Audio with chime duration: {audio_duration:.1f} seconds")
+                    status.text("🔔 Appending chime to voiceover...")
+                    if not append_sound_to_audio(output_audio, "chime.mp3", "voice_with_chime.mp3", silence_gap=0.1):
+                        st.warning("Failed to append chime, using original voiceover only.")
+                        final_audio = output_audio
+                    else:
+                        final_audio = "voice_with_chime.mp3"
+                        audio_duration = get_duration(final_audio)
+                        status.text(f"Audio with chime duration: {audio_duration:.1f} seconds")
+                        st.info("✅ Chime added successfully!")
                 
                 status.text("🔄 Synchronizing video and audio...")
                 progress_bar.progress(70)
