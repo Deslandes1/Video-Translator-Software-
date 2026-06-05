@@ -13,11 +13,11 @@ try:
     YT_DLP_AVAILABLE = True
 except ImportError:
     YT_DLP_AVAILABLE = False
-    st.warning("yt-dlp not installed. For YouTube/Vimeo, install it: pip install yt-dlp")
+    st.warning("yt-dlp not installed. For YouTube/Dropbox links, install it: pip install yt-dlp")
 
 # ================== Page Config ==================
 st.set_page_config(
-    page_title="AI Video Voice Translator | GlobalInternet.py",
+    page_title="Hospital Management System AI Voiceover | GlobalInternet.py",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -233,9 +233,12 @@ def file_info(path):
     return f"exists, size={size} bytes, format={fmt}"
 
 def download_video(url, output_path, cookie_file=None):
-    if "dropbox.com" in url:
+    if "dropbox.com" in url and "dl=0" in url:
         url = url.replace("dl=0", "dl=1")
-        url = url.replace("dl=1", "dl=1")
+        st.info("Converted Dropbox link to direct download.")
+    elif "dropbox.com" in url and "?dl=" not in url:
+        url = url + "?dl=1"
+        st.info("Added ?dl=1 to Dropbox link.")
     
     if is_aria2_available():
         st.info("Trying aria2c with 16 parallel connections ...")
@@ -317,64 +320,62 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
     return False
 
-# ================== Sidebar with Voice Selection ==================
+# ================== Sidebar with Female Voices (3 languages) ==================
 st.sidebar.markdown("## GlobalInternet.py")
-st.sidebar.markdown("### AI Video Voice Translator")
+st.sidebar.markdown("### AI Voiceover for Hospital Management System")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Voice options (male & female)
+# Female voice options for English, French, Spanish
 voice_options = {
     "English (US Female - Jenny)": {"code": "en-US-JennyNeural", "language": "English"},
-    "English (US Male - Christopher)": {"code": "en-US-ChristopherNeural", "language": "English"},
-    "English (UK Male - Ryan)": {"code": "en-GB-RyanNeural", "language": "English"},
-    "English (UK Female - Sonia)": {"code": "en-GB-SoniaNeural", "language": "English"},
-    "Français (French Male - Henri)": {"code": "fr-FR-HenriNeural", "language": "French"},
     "Français (French Female - Denise)": {"code": "fr-FR-DeniseNeural", "language": "French"},
-    "Español (Spanish Male - Alvaro)": {"code": "es-ES-AlvaroNeural", "language": "Spanish"},
     "Español (Spanish Female - Elvira)": {"code": "es-ES-ElviraNeural", "language": "Spanish"},
 }
-selected_voice_label = st.sidebar.selectbox("Select Voice for Narration", list(voice_options.keys()))
+selected_voice_label = st.sidebar.selectbox("Select Female Voice for Narration", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]["code"]
 target_language = voice_options[selected_voice_label]["language"]
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### How it works")
-st.sidebar.markdown("1. The app downloads your mute video (Dropbox/YouTube).")
-st.sidebar.markdown("2. Your English script is **automatically translated** into the selected language using Groq LLM.")
-st.sidebar.markdown("3. A native AI voice reads the translated script.")
+st.sidebar.markdown("1. The app downloads your silent demo video from Dropbox.")
+st.sidebar.markdown("2. Your English script is **automatically translated** into the selected language.")
+st.sidebar.markdown("3. A pure native female AI voice reads the translated script.")
 st.sidebar.markdown("4. The final video includes the voiceover and subtitles – ready to share!")
 
 # ================== Main Interface ==================
-st.title("🌍 AI Video Voice Translator")
-st.markdown("### Turn any mute video into a multilingual narrated video with a realistic AI voice.")
+st.title("🏥 Add a Native Female Voiceover to Your Hospital Management System Demo")
+st.markdown("### Your English script will be translated and spoken by a real native female voice – no mixed accents.")
 
 col_left, col_right = st.columns([2, 1.8])
 
 with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("#### Source Video (mute)")
-    video_url = st.text_input("Paste video link (Dropbox, YouTube, direct MP4):", 
-                              value="https://www.dropbox.com/scl/fi/87a03o1alh4cq3ds5qxr6/TikTokAd.mp4?rlkey=skyjiorytjmwd7v3kb446r6xf&st=wp6rebex&dl=0")
+    # Your Hospital Management System silent video link
+    default_video_url = "https://www.dropbox.com/scl/fi/cg1edllnn2jbh1c25acrm/Hospi.mp4?rlkey=uumdod6ku8mng50d02lgatz6d&st=1hdwqlc3&dl=0"
+    video_url = st.text_input("Video URL (Dropbox, YouTube, or direct MP4):", value=default_video_url)
     st.markdown("---")
     
     st.markdown("#### Narration Script (English)")
-    st.markdown("Write your script in English. It will be automatically translated into the selected language.")
+    st.markdown("The script below will be translated into the selected language. You can edit it as needed.")
+    default_script = """🎬 Introduction to our Hospital Management System. Watch this short video introduction – then click where it says 'Watch the full video on YouTube' for a complete walkthrough.
+
+In this demo, we will click through the main modules: Dashboard Overview, Patient Management, Billing & Revenue, Pharmacy, Laboratory, Radiology, Inventory, and Reports – all showcasing real-time operations and integrated EMR.
+
+This software is multi-specialty, built to streamline your healthcare operations. It includes powerful reporting and analytics to help you make data-driven decisions.
+
+If you want to see the full, detailed demonstration, please visit our YouTube channel and click on the 'Watch the full video' link.
+
+This Hospital Management System was built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. To get in touch with us, call (509) 4738 5663 or email deslandes78@gmail.com. We are the best software company ever."""
     
-    # Custom campaign default script explaining the TikTok Monetization + Paypal workaround
-    default_script = """This presentation is brought to you by GlobalInternet.py, built by Gesner Deslandes, Engineer-in-Chief.
-
-Haitian TikTok creators face a major challenge. They can generate real virtual gifts that have physical monetary value, but because PayPal does not fully operate or allow direct payouts inside of Haiti, getting those funds is extremely difficult. 
-
-But here is a practical solution. With just a simple move—starting to invest as little as five dollars to run a single official ad campaign—we can begin showing TikTok that Haiti is an active, paying advertiser market. This will unlock official monetization support directly over time. Right now, there is no other reliable gateway to open up the market.
-
-In this video, we are looking directly at the TikTok Ads Manager onboarding screen. Welcome to TikTok Ads Manager. Whether your goal is to generate high-quality leads, boost your digital conversions, or drive massive product sales, you can achieve all your specific business goals here with a Business Center and TikTok Ads Manager account. Get started today by sharing simple registration information about your agency or business. Share your advertiser company details, industry, business website, and the specific region where you register. 
-
-Contact us today at GlobalInternet.py to set up your business ads strategy: Phone (509) 4738 5663, email deslandes78@gmail.com. Let us build your next custom software and advertising solution. Thank you for watching."""
+    english_script = st.text_area("English script (must include credit and contact):", height=350, value=default_script)
     
-    english_script = st.text_area("English script (must include credit):", height=400, value=default_script)
+    # Ensure credit and contact are present
     if "Gesner Deslandes" not in english_script or "GlobalInternet.py" not in english_script:
         st.warning("⚠️ Your script must include the credit: 'Built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.'")
+    if "(509) 4738 5663" not in english_script or "deslandes78@gmail.com" not in english_script:
+        st.warning("⚠️ Please include the contact phone number and email in the script.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
@@ -392,16 +393,21 @@ with col_right:
         elif "GROQ_API_KEY" not in st.secrets:
             st.error("Missing Groq API key. Add GROQ_API_KEY to your Streamlit secrets for translation.")
         else:
+            # Ensure credit and contact are present
             final_english = english_script.strip()
             if "Gesner Deslandes" not in final_english or "GlobalInternet.py" not in final_english:
-                final_english = "This presentation is brought to you by GlobalInternet.py, built by Gesner Deslandes, Engineer‑in‑Chief. " + final_english
+                final_english = "This Hospital Management System was built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_english
                 st.info("Added missing credit line to script.")
+            if "(509) 4738 5663" not in final_english:
+                final_english = final_english + " Contact us at (509) 4738 5663 or deslandes78@gmail.com. We are the best software company ever."
+                st.info("Added contact information.")
             
             st.markdown('<div class="status-box">', unsafe_allow_html=True)
             status = st.empty()
             progress_bar = st.progress(0)
             
             try:
+                # Cleanup old files
                 for f in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4"]:
                     if os.path.exists(f):
                         os.remove(f)
@@ -412,7 +418,7 @@ with col_right:
                     raise Exception("Failed to download video. Please check the link.")
                 video_duration = get_duration("video.mp4")
                 if video_duration <= 0:
-                    video_duration = 58.0
+                    video_duration = 90.0  # 1m30s default
                 status.text(f"Video duration: {video_duration:.1f} seconds")
                 
                 # Translate script if target language is not English
@@ -426,7 +432,7 @@ with col_right:
                 else:
                     final_script = final_english
                 
-                status.text("🗣️ Generating voiceover...")
+                status.text("🗣️ Generating pure native female voiceover...")
                 progress_bar.progress(50)
                 output_audio = "translated_voice.mp3"
                 fallback_voice = "en-US-JennyNeural"
@@ -464,6 +470,7 @@ with col_right:
                     st.error(f"FFmpeg error: {result.stderr}")
                     raise Exception("Mixing failed.")
                 
+                # Cleanup temp files
                 for tmp in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
@@ -472,10 +479,10 @@ with col_right:
                 status.text("✅ Narration complete!")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                st.success("Your narrated video is ready. The voice speaks the selected language natively.")
+                st.success("Your narrated video is ready. The voice speaks pure native language – no English mixed in!")
                 st.video(final_output, format="video/mp4")
                 with open(final_output, "rb") as f:
-                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="narrated_video.mp4", mime="video/mp4", use_container_width=True)
+                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="hms_narrated.mp4", mime="video/mp4", use_container_width=True)
                 
             except Exception as e:
                 progress_bar.empty()
@@ -488,7 +495,7 @@ with col_right:
 st.markdown(
     """
     <div class="footer-white-right">
-        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | AI‑Powered Multilingual Voiceover.
+        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | Pure Native AI Voice Narration.
     </div>
     """,
     unsafe_allow_html=True
