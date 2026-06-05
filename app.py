@@ -181,6 +181,48 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
         os.remove(concat_file)
         return os.path.getsize(output_path) > 0
 
+# ================== Function to generate chime sound ==================
+def generate_chime(output_path, duration=0.8, frequency=880):
+    """Generate a short chime sound using ffmpeg (sine wave with fade out)."""
+    cmd = [
+        "ffmpeg", "-f", "lavfi", "-i", f"sine=f={frequency}:d={duration}",
+        "-af", f"afade=t=out:st={duration-0.3}:d=0.3,volume=0.5",
+        "-ac", "2", "-ar", "44100", "-c:a", "aac", "-b:a", "128k",
+        output_path, "-y"
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return os.path.exists(output_path)
+
+def append_sound_to_audio(original_audio, chime_audio, output_audio, silence_gap=0.2):
+    """Append a chime after a short silence to the original audio."""
+    # Create a temporary silence file
+    silence_file = "temp_silence.mp3"
+    cmd_silence = [
+        "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:d={silence_gap}",
+        "-ac", "2", "-ar", "44100", "-c:a", "aac", "-b:a", "128k",
+        silence_file, "-y"
+    ]
+    subprocess.run(cmd_silence, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    # Create concat list: original + silence + chime
+    concat_list = "concat_list.txt"
+    with open(concat_list, "w") as f:
+        f.write(f"file '{original_audio}'\n")
+        f.write(f"file '{silence_file}'\n")
+        f.write(f"file '{chime_audio}'\n")
+    
+    cmd_concat = [
+        "ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_list,
+        "-c", "copy", output_audio, "-y"
+    ]
+    subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    # Cleanup
+    for f in [silence_file, concat_list]:
+        if os.path.exists(f):
+            os.remove(f)
+    return os.path.exists(output_audio)
+
 # ================== TRANSLATION FUNCTION (Groq) ==================
 def translate_text(text, target_language_name, groq_client):
     prompt = f"""You are a professional translator. Translate the following English text into {target_language_name}. 
@@ -326,7 +368,6 @@ st.sidebar.markdown("### AI Voiceover for Hospital Management System")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
-# Female voice options for English, French, Spanish
 voice_options = {
     "English (US Female - Jenny)": {"code": "en-US-JennyNeural", "language": "English"},
     "Français (French Female - Denise)": {"code": "fr-FR-DeniseNeural", "language": "French"},
@@ -341,24 +382,23 @@ st.sidebar.markdown("### How it works")
 st.sidebar.markdown("1. The app downloads your silent demo video from Dropbox.")
 st.sidebar.markdown("2. Your English script is **automatically translated** into the selected language.")
 st.sidebar.markdown("3. A pure native female AI voice reads the translated script.")
-st.sidebar.markdown("4. The final video includes the voiceover and subtitles – ready to share!")
+st.sidebar.markdown("4. A pleasant **success chime** is added at the end.")
+st.sidebar.markdown("5. The final video includes the voiceover, chime, and subtitles – ready to share!")
 
 # ================== Main Interface ==================
-st.title("🏥 Add a Native Female Voiceover to Your Hospital Management System Demo")
-st.markdown("### Your English script will be translated and spoken by a real native female voice – no mixed accents.")
+st.title("🏥 Add a Native Female Voiceover + Ending Chime to Your HMS Demo")
+st.markdown("### Your English script will be translated and spoken by a real native female voice – with a satisfying chime at the end.")
 
 col_left, col_right = st.columns([2, 1.8])
 
 with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("#### Source Video (mute)")
-    # Your Hospital Management System silent video link
     default_video_url = "https://www.dropbox.com/scl/fi/cg1edllnn2jbh1c25acrm/Hospi.mp4?rlkey=uumdod6ku8mng50d02lgatz6d&st=1hdwqlc3&dl=0"
     video_url = st.text_input("Video URL (Dropbox, YouTube, or direct MP4):", value=default_video_url)
     st.markdown("---")
     
     st.markdown("#### Narration Script (English)")
-    st.markdown("The script below will be translated into the selected language. You can edit it as needed.")
     default_script = """🎬 Introduction to our Hospital Management System. Watch this short video introduction – then click where it says 'Watch the full video on YouTube' for a complete walkthrough.
 
 In this demo, we will click through the main modules: Dashboard Overview, Patient Management, Billing & Revenue, Pharmacy, Laboratory, Radiology, Inventory, and Reports – all showcasing real-time operations and integrated EMR.
@@ -371,7 +411,6 @@ This Hospital Management System was built by Gesner Deslandes, Engineer‑in‑C
     
     english_script = st.text_area("English script (must include credit and contact):", height=350, value=default_script)
     
-    # Ensure credit and contact are present
     if "Gesner Deslandes" not in english_script or "GlobalInternet.py" not in english_script:
         st.warning("⚠️ Your script must include the credit: 'Built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.'")
     if "(509) 4738 5663" not in english_script or "deslandes78@gmail.com" not in english_script:
@@ -383,7 +422,7 @@ with col_right:
     st.markdown("#### Generate Narrated Video")
     st.markdown(f"**Selected voice:** {selected_voice_label}")
     st.markdown(f"**Target language for voice:** {target_language}")
-    generate_btn = st.button("🎤 Create Voiceover Video", use_container_width=True)
+    generate_btn = st.button("🎤 Create Voiceover Video (with chime)", use_container_width=True)
     
     if generate_btn:
         if not video_url:
@@ -393,7 +432,6 @@ with col_right:
         elif "GROQ_API_KEY" not in st.secrets:
             st.error("Missing Groq API key. Add GROQ_API_KEY to your Streamlit secrets for translation.")
         else:
-            # Ensure credit and contact are present
             final_english = english_script.strip()
             if "Gesner Deslandes" not in final_english or "GlobalInternet.py" not in final_english:
                 final_english = "This Hospital Management System was built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_english
@@ -407,8 +445,7 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                # Cleanup old files
-                for f in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4"]:
+                for f in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "chime.mp3", "voice_with_chime.mp3"]:
                     if os.path.exists(f):
                         os.remove(f)
                 
@@ -418,10 +455,10 @@ with col_right:
                     raise Exception("Failed to download video. Please check the link.")
                 video_duration = get_duration("video.mp4")
                 if video_duration <= 0:
-                    video_duration = 90.0  # 1m30s default
+                    video_duration = 90.0
                 status.text(f"Video duration: {video_duration:.1f} seconds")
                 
-                # Translate script if target language is not English
+                # Translate script if needed
                 if target_language.lower() != "english":
                     status.text(f"🔄 Translating script from English to {target_language}...")
                     progress_bar.progress(25)
@@ -433,19 +470,31 @@ with col_right:
                     final_script = final_english
                 
                 status.text("🗣️ Generating pure native female voiceover...")
-                progress_bar.progress(50)
+                progress_bar.progress(40)
                 output_audio = "translated_voice.mp3"
                 fallback_voice = "en-US-JennyNeural"
                 tts_success = asyncio.run(generate_tts(final_script, output_audio, voice_code, fallback_voice))
                 if not tts_success:
-                    raise Exception("TTS generation failed. Check network or voice code.")
+                    raise Exception("TTS generation failed.")
                 audio_duration = get_duration(output_audio)
                 status.text(f"Voiceover duration: {audio_duration:.1f} seconds")
                 
+                # Generate chime and append to voiceover
+                status.text("🔔 Adding ending chime...")
+                progress_bar.progress(55)
+                generate_chime("chime.mp3", duration=0.8, frequency=880)
+                if not append_sound_to_audio(output_audio, "chime.mp3", "voice_with_chime.mp3", silence_gap=0.2):
+                    st.warning("Failed to append chime, using original voiceover only.")
+                    final_audio = output_audio
+                else:
+                    final_audio = "voice_with_chime.mp3"
+                    audio_duration = get_duration(final_audio)
+                    status.text(f"Audio with chime duration: {audio_duration:.1f} seconds")
+                
                 status.text("🔄 Synchronizing video and audio...")
-                progress_bar.progress(75)
+                progress_bar.progress(70)
                 if audio_duration > video_duration:
-                    st.warning(f"Voiceover is longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video with last frame.")
+                    st.warning(f"Audio is longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
                     final_duration = audio_duration
                 else:
@@ -457,7 +506,7 @@ with col_right:
                 status.text("🎬 Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
                 cmd = [
-                    "ffmpeg", "-i", working_video, "-i", output_audio,
+                    "ffmpeg", "-i", working_video, "-i", final_audio,
                     "-map", "0:v:0", "-map", "1:a:0",
                     "-vf", "subtitles=subtitles.srt",
                     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
@@ -470,19 +519,18 @@ with col_right:
                     st.error(f"FFmpeg error: {result.stderr}")
                     raise Exception("Mixing failed.")
                 
-                # Cleanup temp files
-                for tmp in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
+                for tmp in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "chime.mp3", "voice_with_chime.mp3"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
                 
                 progress_bar.progress(100)
-                status.text("✅ Narration complete!")
+                status.text("✅ Narration complete with ending chime!")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                st.success("Your narrated video is ready. The voice speaks pure native language – no English mixed in!")
+                st.success("Your narrated video is ready! The ending chime makes the finish satisfying.")
                 st.video(final_output, format="video/mp4")
                 with open(final_output, "rb") as f:
-                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="hms_narrated.mp4", mime="video/mp4", use_container_width=True)
+                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="hms_narrated_with_chime.mp4", mime="video/mp4", use_container_width=True)
                 
             except Exception as e:
                 progress_bar.empty()
@@ -495,7 +543,7 @@ with col_right:
 st.markdown(
     """
     <div class="footer-white-right">
-        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | Pure Native AI Voice Narration.
+        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | Pure Native AI Voice Narration + Ending Chime.
     </div>
     """,
     unsafe_allow_html=True
