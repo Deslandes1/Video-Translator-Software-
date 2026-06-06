@@ -7,7 +7,6 @@ import re
 import edge_tts
 from groq import Groq
 
-# yt-dlp (optional)
 try:
     import yt_dlp
     YT_DLP_AVAILABLE = True
@@ -17,7 +16,7 @@ except ImportError:
 
 # ================== Page Config ==================
 st.set_page_config(
-    page_title="Hospital Management System AI Voiceover | GlobalInternet.py",
+    page_title="SafeHaven AI Voiceover | GlobalInternet.py",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -181,13 +180,7 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
         os.remove(concat_file)
         return os.path.getsize(output_path) > 0
 
-# ================== IMPROVED CHIME GENERATION ==================
 def generate_chime(output_path, duration=0.6):
-    """Generate a two-tone pleasant chime (ding) with fade in/out."""
-    # Two sine waves: first 880 Hz, then 1046 Hz (C5 and A5)
-    # Using a single complex filter: aeval to create two tones sequentially
-    # Alternatively, generate a short beep with a pitch bend? Let's keep it simple.
-    # We'll generate a 0.6 sec audio: first 0.3 sec 880Hz, then 0.3 sec 1046Hz, with fade out.
     cmd = [
         "ffmpeg", "-f", "lavfi", "-i",
         f"aevalsrc=0.8*sin(2*PI*880*t)*(t<0.3) + 0.8*sin(2*PI*1046*(t-0.3))*(t>=0.3):d={duration}",
@@ -199,7 +192,6 @@ def generate_chime(output_path, duration=0.6):
     return os.path.exists(output_path) and os.path.getsize(output_path) > 0
 
 def append_sound_to_audio(original_audio, chime_audio, output_audio, silence_gap=0.1):
-    """Append a chime after a short silence to the original audio."""
     silence_file = "temp_silence.mp3"
     cmd_silence = [
         "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:d={silence_gap}",
@@ -207,25 +199,21 @@ def append_sound_to_audio(original_audio, chime_audio, output_audio, silence_gap
         silence_file, "-y"
     ]
     subprocess.run(cmd_silence, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    
     concat_list = "concat_list.txt"
     with open(concat_list, "w") as f:
         f.write(f"file '{original_audio}'\n")
         f.write(f"file '{silence_file}'\n")
         f.write(f"file '{chime_audio}'\n")
-    
     cmd_concat = [
         "ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_list,
         "-c", "copy", output_audio, "-y"
     ]
     subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    
     for f in [silence_file, concat_list]:
         if os.path.exists(f):
             os.remove(f)
     return os.path.exists(output_audio)
 
-# ================== TRANSLATION FUNCTION (Groq) ==================
 def translate_text(text, target_language_name, groq_client):
     prompt = f"""You are a professional translator. Translate the following English text into {target_language_name}. 
 The translation must be natural, fluent, and culturally appropriate. 
@@ -248,7 +236,6 @@ Translated text ({target_language_name}):"""
         st.error(f"Translation failed: {e}")
         return text
 
-# ================== Download functions ==================
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -364,59 +351,71 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
     return False
 
-# ================== Sidebar with Female Voices (3 languages) ==================
+# ================== Sidebar with Voice Selection (Male & Female) ==================
 st.sidebar.markdown("## GlobalInternet.py")
-st.sidebar.markdown("### AI Voiceover for Hospital Management System")
+st.sidebar.markdown("### AI Voiceover for SafeHaven Demo")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
 voice_options = {
+    "English (US Male - Christopher)": {"code": "en-US-ChristopherNeural", "language": "English"},
     "English (US Female - Jenny)": {"code": "en-US-JennyNeural", "language": "English"},
+    "English (UK Male - Ryan)": {"code": "en-GB-RyanNeural", "language": "English"},
+    "English (UK Female - Sonia)": {"code": "en-GB-SoniaNeural", "language": "English"},
+    "Français (French Male - Henri)": {"code": "fr-FR-HenriNeural", "language": "French"},
     "Français (French Female - Denise)": {"code": "fr-FR-DeniseNeural", "language": "French"},
+    "Español (Spanish Male - Alvaro)": {"code": "es-ES-AlvaroNeural", "language": "Spanish"},
     "Español (Spanish Female - Elvira)": {"code": "es-ES-ElviraNeural", "language": "Spanish"},
 }
-selected_voice_label = st.sidebar.selectbox("Select Female Voice for Narration", list(voice_options.keys()))
+selected_voice_label = st.sidebar.selectbox("Select Voice for Narration", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]["code"]
 target_language = voice_options[selected_voice_label]["language"]
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### How it works")
-st.sidebar.markdown("1. The app downloads your silent demo video from Dropbox.")
-st.sidebar.markdown("2. Your English script is **automatically translated** into the selected language.")
-st.sidebar.markdown("3. A pure native female AI voice reads the translated script.")
-st.sidebar.markdown("4. A **pleasant two-tone chime** (ding) is added at the end.")
-st.sidebar.markdown("5. The final video includes the voiceover, chime, and subtitles – ready to share!")
+st.sidebar.markdown("1. Downloads your SafeHaven screen recording from Dropbox.")
+st.sidebar.markdown("2. Your English script is automatically translated into the selected language.")
+st.sidebar.markdown("3. A pure native AI voice reads the script (male or female).")
+st.sidebar.markdown("4. A pleasant chime is added at the end.")
+st.sidebar.markdown("5. Final video includes voiceover, chime, and subtitles.")
 
 # ================== Main Interface ==================
-st.title("🏥 Add a Native Female Voiceover + Ending Chime to Your HMS Demo")
-st.markdown("### Your English script will be translated and spoken by a real native female voice – with a satisfying chime at the end.")
+st.title("🛡️ Add Professional AI Voiceover to Your SafeHaven Demo")
+st.markdown("### The voice will describe every action exactly as shown in your screen recording.")
 
 col_left, col_right = st.columns([2, 1.8])
 
 with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
     st.markdown("#### Source Video (mute)")
-    default_video_url = "https://www.dropbox.com/scl/fi/cg1edllnn2jbh1c25acrm/Hospi.mp4?rlkey=uumdod6ku8mng50d02lgatz6d&st=1hdwqlc3&dl=0"
+    default_video_url = "https://www.dropbox.com/scl/fi/6qgasopehreteducgqm0d/SafeHaven.mp4?rlkey=4wor0fg9oawbwa5p3gakxxr7x&st=ppw3s9uk&dl=0"
     video_url = st.text_input("Video URL (Dropbox, YouTube, or direct MP4):", value=default_video_url)
     st.markdown("---")
     
     st.markdown("#### Narration Script (English)")
-    default_script = """🎬 Introduction to our Hospital Management System. Watch this short video introduction – then click where it says 'Watch the full video on YouTube' for a complete walkthrough.
+    st.markdown("The script below exactly matches your screen recording. You can edit it if needed.")
+    default_script = """Welcome to SafeHaven, an AI‑powered anti‑trafficking tool built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.
 
-In this demo, we will click through the main modules: Dashboard Overview, Patient Management, Billing & Revenue, Pharmacy, Laboratory, Radiology, Inventory, and Reports – all showcasing real-time operations and integrated EMR.
+In this demo, I will walk you through the main features.
 
-This software is multi-specialty, built to streamline your healthcare operations. It includes powerful reporting and analytics to help you make data-driven decisions.
+First, I click on the **Risk Assessment** tab. I type a realistic scenario into the text box: "I asked a recruiter for a well‑paying job and he asked me for my passport and $500."
 
-If you want to see the full, detailed demonstration, please visit our YouTube channel and click on the 'Watch the full video' link.
+I click **Analyze Risk**. The AI immediately returns a **HIGH RISK** alert. It advises: "Do not provide your passport or any payment to the recruiter until you have thoroughly researched the company and verified the job offer." The red flags detected are: confiscated passport and excessive upfront payment of $500. I am prompted to contact a local hotline from the Resources tab.
 
-This Hospital Management System was built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. To get in touch with us, call (509) 4738 5663 or email deslandes78@gmail.com. We are the best software company ever."""
+Next, I move to the **Report** tab. I fill in the description: "He was an old man very charming and had beard." I enter the location: Port‑au‑Prince, Haiti. I provide my email address: deslandes78@gmail.com, then click **Submit Report**. The report is saved anonymously.
+
+Then I open the **Resources** tab. Here we see the National Human Trafficking Hotline (1‑888‑373‑7888), the Global Modern Slavery Directory, IOM, and local numbers for Haiti and France. The safety plan reminds us to memorize emergency numbers, keep documents safe, establish a check‑in routine, use private browsing, and call emergency services if in danger.
+
+Finally, I look at the sidebar. There is a **language selector** offering English, Français, and Español. The **Global Security Shield** is active – end‑to‑end encryption protects all data.
+
+SafeHaven uses Groq’s Llama 3.1 model to detect trafficking indicators. It does not store personal data unless voluntarily provided.
+
+Thank you for watching. This tool was built for the Call for Code AI Global Challenge by GlobalInternet.py. To get in touch, call (509) 4738 5663 or email deslandes78@gmail.com. We are the best software company ever."""
     
-    english_script = st.text_area("English script (must include credit and contact):", height=350, value=default_script)
+    english_script = st.text_area("English script (must include credit and contact):", height=450, value=default_script)
     
     if "Gesner Deslandes" not in english_script or "GlobalInternet.py" not in english_script:
         st.warning("⚠️ Your script must include the credit: 'Built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.'")
-    if "(509) 4738 5663" not in english_script or "deslandes78@gmail.com" not in english_script:
-        st.warning("⚠️ Please include the contact phone number and email in the script.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
@@ -436,7 +435,7 @@ with col_right:
         else:
             final_english = english_script.strip()
             if "Gesner Deslandes" not in final_english or "GlobalInternet.py" not in final_english:
-                final_english = "This Hospital Management System was built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_english
+                final_english = "This SafeHaven tool was built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_english
                 st.info("Added missing credit line to script.")
             if "(509) 4738 5663" not in final_english:
                 final_english = final_english + " Contact us at (509) 4738 5663 or deslandes78@gmail.com. We are the best software company ever."
@@ -471,17 +470,17 @@ with col_right:
                 else:
                     final_script = final_english
                 
-                status.text("🗣️ Generating pure native female voiceover...")
+                status.text("🗣️ Generating voiceover...")
                 progress_bar.progress(40)
                 output_audio = "translated_voice.mp3"
-                fallback_voice = "en-US-JennyNeural"
+                fallback_voice = "en-US-ChristopherNeural"
                 tts_success = asyncio.run(generate_tts(final_script, output_audio, voice_code, fallback_voice))
                 if not tts_success:
                     raise Exception("TTS generation failed.")
                 audio_duration = get_duration(output_audio)
                 status.text(f"Voiceover duration: {audio_duration:.1f} seconds")
                 
-                # Generate chime and append to voiceover
+                # Generate chime and append
                 status.text("🔔 Generating ending chime...")
                 progress_bar.progress(55)
                 if not generate_chime("chime.mp3"):
@@ -534,10 +533,10 @@ with col_right:
                 status.text("✅ Narration complete with ending chime!")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                st.success("Your narrated video is ready! The ending chime makes the finish satisfying.")
+                st.success("Your narrated SafeHaven video is ready! The voice describes every action exactly.")
                 st.video(final_output, format="video/mp4")
                 with open(final_output, "rb") as f:
-                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="hms_narrated_with_chime.mp4", mime="video/mp4", use_container_width=True)
+                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="safehaven_narrated.mp4", mime="video/mp4", use_container_width=True)
                 
             except Exception as e:
                 progress_bar.empty()
