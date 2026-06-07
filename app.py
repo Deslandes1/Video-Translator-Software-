@@ -16,12 +16,11 @@ except ImportError:
 
 # ================== Page Config ==================
 st.set_page_config(
-    page_title="SafeHaven AI Voiceover | GlobalInternet.py",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="ICPC Practice Arena – AI Voiceover",
+    page_icon="🏆",
+    layout="wide"
 )
 
-# ================== Styling ==================
 st.markdown(
     """
     <style>
@@ -180,40 +179,6 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
         os.remove(concat_file)
         return os.path.getsize(output_path) > 0
 
-def generate_chime(output_path, duration=0.6):
-    cmd = [
-        "ffmpeg", "-f", "lavfi", "-i",
-        f"aevalsrc=0.8*sin(2*PI*880*t)*(t<0.3) + 0.8*sin(2*PI*1046*(t-0.3))*(t>=0.3):d={duration}",
-        "-af", f"afade=t=in:st=0:d=0.05,afade=t=out:st={duration-0.1}:d=0.1,volume=0.8",
-        "-ac", "2", "-ar", "44100", "-c:a", "aac", "-b:a", "128k",
-        output_path, "-y"
-    ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return os.path.exists(output_path) and os.path.getsize(output_path) > 0
-
-def append_sound_to_audio(original_audio, chime_audio, output_audio, silence_gap=0.1):
-    silence_file = "temp_silence.mp3"
-    cmd_silence = [
-        "ffmpeg", "-f", "lavfi", "-i", f"aevalsrc=0:d={silence_gap}",
-        "-ac", "2", "-ar", "44100", "-c:a", "aac", "-b:a", "128k",
-        silence_file, "-y"
-    ]
-    subprocess.run(cmd_silence, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    concat_list = "concat_list.txt"
-    with open(concat_list, "w") as f:
-        f.write(f"file '{original_audio}'\n")
-        f.write(f"file '{silence_file}'\n")
-        f.write(f"file '{chime_audio}'\n")
-    cmd_concat = [
-        "ffmpeg", "-f", "concat", "-safe", "0", "-i", concat_list,
-        "-c", "copy", output_audio, "-y"
-    ]
-    subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for f in [silence_file, concat_list]:
-        if os.path.exists(f):
-            os.remove(f)
-    return os.path.exists(output_audio)
-
 def translate_text(text, target_language_name, groq_client):
     prompt = f"""You are a professional translator. Translate the following English text into {target_language_name}. 
 The translation must be natural, fluent, and culturally appropriate. 
@@ -351,9 +316,9 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
     return False
 
-# ================== Sidebar with Voice Selection (Male & Female) ==================
+# ================== Sidebar – Male Voice Preset ==================
 st.sidebar.markdown("## GlobalInternet.py")
-st.sidebar.markdown("### AI Voiceover for SafeHaven Demo")
+st.sidebar.markdown("### AI Voiceover for ICPC Practice Arena Demo")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
@@ -373,44 +338,47 @@ target_language = voice_options[selected_voice_label]["language"]
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### How it works")
-st.sidebar.markdown("1. Downloads your SafeHaven screen recording from Dropbox.")
-st.sidebar.markdown("2. Your English script is automatically translated into the selected language.")
-st.sidebar.markdown("3. A pure native AI voice reads the script (male or female).")
-st.sidebar.markdown("4. A pleasant chime is added at the end.")
-st.sidebar.markdown("5. Final video includes voiceover, chime, and subtitles.")
+st.sidebar.markdown("1. Downloads your silent screen recording from Dropbox.")
+st.sidebar.markdown("2. Translates the English script into the selected language.")
+st.sidebar.markdown("3. A pure native AI voice reads the translated script.")
+st.sidebar.markdown("4. The final video includes voiceover and subtitles – ready to share!")
 
 # ================== Main Interface ==================
-st.title("🛡️ Add Professional AI Voiceover to Your SafeHaven Demo")
-st.markdown("### The voice will describe every action exactly as shown in your screen recording.")
+st.title("🎙️ Add Professional AI Voiceover to Your ICPC Demo")
+st.markdown("### The voice will narrate every step – from solving the problem to receiving AI feedback and exploring the sidebar.")
 
 col_left, col_right = st.columns([2, 1.8])
 
 with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-    st.markdown("#### Source Video (mute)")
-    default_video_url = "https://www.dropbox.com/scl/fi/6qgasopehreteducgqm0d/SafeHaven.mp4?rlkey=4wor0fg9oawbwa5p3gakxxr7x&st=ppw3s9uk&dl=0"
+    st.markdown("#### Source Video (silent screen recording)")
+    # Your exact Dropbox link – already converted to dl=1
+    default_video_url = "https://www.dropbox.com/scl/fi/j5ww0pg78djihbgtifisy/Algorithmic-Problem-Solver.mp4?rlkey=dm7cl4un01pu8zp2by4cwr0s9&st=ud8gss2m&dl=1"
     video_url = st.text_input("Video URL (Dropbox, YouTube, or direct MP4):", value=default_video_url)
     st.markdown("---")
     
     st.markdown("#### Narration Script (English)")
-    st.markdown("The script below exactly matches your screen recording. You can edit it if needed.")
-    default_script = """Welcome to SafeHaven, an AI‑powered anti‑trafficking tool built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.
+    st.markdown("The script below matches every action in your recording. You can edit it if needed.")
+    default_script = """Welcome to the ICPC Practice Arena, built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.
 
-In this demo, I will walk you through the main features.
+First, I click on the **Practice Problem** tab. I enter the array: 10, 9, 2, 5, 3, 7, 101, 18. Then I click **Run & Check Solution**. The app instantly returns: ✅ Correct! The length of the LIS is 4.
 
-First, I click on the **Risk Assessment** tab. I type a realistic scenario into the text box: "I asked a recruiter for a well‑paying job and he asked me for my passport and $500."
+Now I move to the **AI Coach** tab. I paste my O(n²) solution:
 
-I click **Analyze Risk**. The AI immediately returns a **HIGH RISK** alert. It advises: "Do not provide your passport or any payment to the recruiter until you have thoroughly researched the company and verified the job offer." The red flags detected are: confiscated passport and excessive upfront payment of $500. I am prompted to contact a local hotline from the Resources tab.
+def lis(arr):
+    n = len(arr)
+    dp = [1]*n
+    for i in range(n):
+        for j in range(i):
+            if arr[j] < arr[i]:
+                dp[i] = max(dp[i], dp[j]+1)
+    return max(dp)
 
-Next, I move to the **Report** tab. I fill in the description: "He was an old man very charming and had beard." I enter the location: Port‑au‑Prince, Haiti. I provide my email address: deslandes78@gmail.com, then click **Submit Report**. The report is saved anonymously.
+I click **Get AI Feedback**. The AI highlights that my code is inefficient for large inputs and suggests the optimal O(n log n) solution using binary search and patience sorting. It also explains key concepts like dynamic programming, binary search, and Fenwick trees.
 
-Then I open the **Resources** tab. Here we see the National Human Trafficking Hotline (1‑888‑373‑7888), the Global Modern Slavery Directory, IOM, and local numbers for Haiti and France. The safety plan reminds us to memorize emergency numbers, keep documents safe, establish a check‑in routine, use private browsing, and call emergency services if in danger.
+Finally, I explore the sidebar. The language selector lets me switch between English, French, and Spanish. The **Global Security Shield** ensures end‑to‑end encryption – all data is secured and anonymized. I also see my contact information, pricing, and a clear “How to use” guide.
 
-Finally, I look at the sidebar. There is a **language selector** offering English, Français, and Español. The **Global Security Shield** is active – end‑to‑end encryption protects all data.
-
-SafeHaven uses Groq’s Llama 3.1 model to detect trafficking indicators. It does not store personal data unless voluntarily provided.
-
-Thank you for watching. This tool was built for the Call for Code AI Global Challenge by GlobalInternet.py. To get in touch, call (509) 4738 5663 or email deslandes78@gmail.com. We are the best software company ever."""
+This is Gesner Deslandes from GlobalInternet.py. Good luck with your ICPC preparation – and remember, we are the best software company ever."""
     
     english_script = st.text_area("English script (must include credit and contact):", height=450, value=default_script)
     
@@ -423,7 +391,7 @@ with col_right:
     st.markdown("#### Generate Narrated Video")
     st.markdown(f"**Selected voice:** {selected_voice_label}")
     st.markdown(f"**Target language for voice:** {target_language}")
-    generate_btn = st.button("🎤 Create Voiceover Video (with chime)", use_container_width=True)
+    generate_btn = st.button("🎤 Create Voiceover Video", use_container_width=True)
     
     if generate_btn:
         if not video_url:
@@ -435,7 +403,7 @@ with col_right:
         else:
             final_english = english_script.strip()
             if "Gesner Deslandes" not in final_english or "GlobalInternet.py" not in final_english:
-                final_english = "This SafeHaven tool was built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_english
+                final_english = "This ICPC Practice Arena was built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_english
                 st.info("Added missing credit line to script.")
             if "(509) 4738 5663" not in final_english:
                 final_english = final_english + " Contact us at (509) 4738 5663 or deslandes78@gmail.com. We are the best software company ever."
@@ -446,7 +414,7 @@ with col_right:
             progress_bar = st.progress(0)
             
             try:
-                for f in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4", "chime.mp3", "voice_with_chime.mp3"]:
+                for f in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "final_output.mp4", "extended_video.mp4"]:
                     if os.path.exists(f):
                         os.remove(f)
                 
@@ -471,7 +439,7 @@ with col_right:
                     final_script = final_english
                 
                 status.text("🗣️ Generating voiceover...")
-                progress_bar.progress(40)
+                progress_bar.progress(50)
                 output_audio = "translated_voice.mp3"
                 fallback_voice = "en-US-ChristopherNeural"
                 tts_success = asyncio.run(generate_tts(final_script, output_audio, voice_code, fallback_voice))
@@ -480,27 +448,10 @@ with col_right:
                 audio_duration = get_duration(output_audio)
                 status.text(f"Voiceover duration: {audio_duration:.1f} seconds")
                 
-                # Generate chime and append
-                status.text("🔔 Generating ending chime...")
-                progress_bar.progress(55)
-                if not generate_chime("chime.mp3"):
-                    st.warning("Chime generation failed, proceeding without chime.")
-                    final_audio = output_audio
-                else:
-                    status.text("🔔 Appending chime to voiceover...")
-                    if not append_sound_to_audio(output_audio, "chime.mp3", "voice_with_chime.mp3", silence_gap=0.1):
-                        st.warning("Failed to append chime, using original voiceover only.")
-                        final_audio = output_audio
-                    else:
-                        final_audio = "voice_with_chime.mp3"
-                        audio_duration = get_duration(final_audio)
-                        status.text(f"Audio with chime duration: {audio_duration:.1f} seconds")
-                        st.info("✅ Chime added successfully!")
-                
                 status.text("🔄 Synchronizing video and audio...")
-                progress_bar.progress(70)
+                progress_bar.progress(75)
                 if audio_duration > video_duration:
-                    st.warning(f"Audio is longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video.")
+                    st.warning(f"Voiceover is longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video with last frame.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
                     final_duration = audio_duration
                 else:
@@ -512,7 +463,7 @@ with col_right:
                 status.text("🎬 Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
                 cmd = [
-                    "ffmpeg", "-i", working_video, "-i", final_audio,
+                    "ffmpeg", "-i", working_video, "-i", output_audio,
                     "-map", "0:v:0", "-map", "1:a:0",
                     "-vf", "subtitles=subtitles.srt",
                     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
@@ -525,18 +476,18 @@ with col_right:
                     st.error(f"FFmpeg error: {result.stderr}")
                     raise Exception("Mixing failed.")
                 
-                for tmp in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4", "chime.mp3", "voice_with_chime.mp3"]:
+                for tmp in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
                 
                 progress_bar.progress(100)
-                status.text("✅ Narration complete with ending chime!")
+                status.text("✅ Narration complete!")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                st.success("Your narrated SafeHaven video is ready! The voice describes every action exactly.")
+                st.success("Your narrated ICPC demo is ready! The voice describes every action exactly.")
                 st.video(final_output, format="video/mp4")
                 with open(final_output, "rb") as f:
-                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="safehaven_narrated.mp4", mime="video/mp4", use_container_width=True)
+                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="icpc_demo_narrated.mp4", mime="video/mp4", use_container_width=True)
                 
             except Exception as e:
                 progress_bar.empty()
@@ -549,7 +500,7 @@ with col_right:
 st.markdown(
     """
     <div class="footer-white-right">
-        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | Pure Native AI Voice Narration + Ending Chime.
+        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | Pure Native AI Voice Narration.
     </div>
     """,
     unsafe_allow_html=True
