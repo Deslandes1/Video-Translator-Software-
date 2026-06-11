@@ -14,14 +14,12 @@ except ImportError:
     YT_DLP_AVAILABLE = False
     st.warning("yt-dlp not installed. For YouTube/Dropbox links, install it: pip install yt-dlp")
 
-# ================== Page Config ==================
 st.set_page_config(
     page_title="AI Video Voice Translator | GlobalInternet.py",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ================== Styling ==================
 st.markdown(
     """
     <style>
@@ -55,7 +53,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ================== Helper Functions ==================
+# ---------- Helper Functions ----------
 def get_duration(file_path):
     if not os.path.exists(file_path):
         return 0.0
@@ -67,6 +65,10 @@ def get_duration(file_path):
         return 0.0
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
+    """
+    Extend video to target_duration by freezing the last frame.
+    Uses tpad with clone mode.
+    """
     orig_dur = get_duration(original_video)
     if orig_dur >= target_duration - 0.1:
         subprocess.run([
@@ -74,23 +76,25 @@ def extend_video_with_last_frame(original_video, output_video, target_duration):
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_video
     pad_duration = target_duration - orig_dur
-    subprocess.run([
+    cmd = [
         "ffmpeg", "-i", original_video,
         "-vf", f"tpad=stop_mode=clone:stop_duration={pad_duration}",
         "-af", f"apad=pad_dur={pad_duration}",
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k",
-        "-t", str(target_duration),
         output_video, "-y"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return output_video
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if os.path.exists(output_video) and os.path.getsize(output_video) > 0:
+        return output_video
+    else:
+        raise Exception("Video extension failed")
 
 def generate_srt_file(text, duration_sec, output_srt_path):
+    # Split text into chunks of max 5 words to keep subtitles short
     words = text.split()
-    if not words:
-        words = ["Processing..."]
-    chunk_size = 6
-    chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
+    chunk_size = 5
+    chunks = [words[i:i+chunk_size] for i in range(0, len(words), chunk_size)]
     num_chunks = len(chunks)
     chunk_duration = duration_sec / max(1, num_chunks)
 
@@ -180,7 +184,6 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
         os.remove(concat_file)
         return os.path.getsize(output_path) > 0
 
-# ================== TRANSLATION FUNCTION (Groq) ==================
 def translate_text(text, target_language_name, groq_client):
     prompt = f"""You are a professional translator. Translate the following English text into {target_language_name}. 
 The translation must be natural, fluent, and culturally appropriate. 
@@ -203,7 +206,7 @@ Translated text ({target_language_name}):"""
         st.error(f"Translation failed: {e}")
         return text
 
-# ================== Download functions ==================
+# ---------- Download functions (unchanged) ----------
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -319,7 +322,7 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
     return False
 
-# ================== Sidebar ==================
+# ---------- Sidebar ----------
 st.sidebar.markdown("## GlobalInternet.py")
 st.sidebar.markdown("### AI Video Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
@@ -346,9 +349,10 @@ st.sidebar.markdown("### How it works")
 st.sidebar.markdown("1. The app downloads your mute video (Dropbox/YouTube).")
 st.sidebar.markdown("2. Your English script is **automatically translated** into the selected language using Groq LLM.")
 st.sidebar.markdown("3. A native AI voice reads the translated script.")
-st.sidebar.markdown("4. The final video includes the voiceover and subtitles – ready to share!")
+st.sidebar.markdown("4. If the voiceover is longer, the video freezes on the last frame until the voice ends.")
+st.sidebar.markdown("5. The final video includes the voiceover and subtitles – ready to share!")
 
-# ================== Main Interface ==================
+# ---------- Main Interface ----------
 st.title("🌍 AI Video Voice Translator")
 st.markdown("### Turn any mute video into a multilingual narrated video with a realistic AI voice.")
 
@@ -434,7 +438,7 @@ with col_right:
                     video_duration = 30.0
                 status.text(f"Video duration: {video_duration:.1f} seconds")
                 
-                # Translate script if target language is not English
+                # Translate script if needed
                 if target_language.lower() != "english":
                     status.text(f"🔄 Translating script from English to {target_language}...")
                     progress_bar.progress(25)
@@ -455,12 +459,14 @@ with col_right:
                 audio_duration = get_duration(output_audio)
                 status.text(f"Voiceover duration: {audio_duration:.1f} seconds")
                 
+                # Synchronize video and audio (extend video if needed)
                 status.text("🔄 Synchronizing video and audio...")
-                progress_bar.progress(75)
+                progress_bar.progress(70)
                 if audio_duration > video_duration:
                     st.warning(f"Voiceover is longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video with last frame.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
                     final_duration = audio_duration
+                    status.text(f"Extended video to {final_duration:.1f} seconds (freeze last frame)")
                 else:
                     working_video = "video.mp4"
                     final_duration = video_duration
@@ -470,16 +476,15 @@ with col_right:
                 status.text("🎬 Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
                 
-                # ----- FIX: Chinese subtitles with smaller font and bottom margin -----
+                # Subtitle settings: small font (14px), large bottom margin (80px) to keep text low
                 if target_language == "Mandarin Chinese":
-                    # Use installed Noto Sans CJK font (via packages.txt)
                     font_path = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
                     if os.path.exists(font_path):
-                        vf_filter = f"subtitles=subtitles.srt:fontsdir={os.path.dirname(font_path)}:force_style='FontName=Noto Sans CJK SC,FontSize=18,MarginV=40'"
+                        vf_filter = f"subtitles=subtitles.srt:fontsdir={os.path.dirname(font_path)}:force_style='FontName=Noto Sans CJK SC,FontSize=14,MarginV=80'"
                     else:
-                        vf_filter = "subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=18,MarginV=40'"
+                        vf_filter = "subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=14,MarginV=80'"
                 else:
-                    vf_filter = "subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=18,MarginV=40'"
+                    vf_filter = "subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=14,MarginV=80'"
                 
                 cmd = [
                     "ffmpeg", "-i", working_video, "-i", output_audio,
@@ -495,7 +500,7 @@ with col_right:
                     st.error(f"FFmpeg error: {result.stderr}")
                     raise Exception("Mixing failed.")
                 
-                # Cleanup temp files
+                # Cleanup
                 for tmp in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
