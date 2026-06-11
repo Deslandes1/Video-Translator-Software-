@@ -16,11 +16,12 @@ except ImportError:
 
 # ================== Page Config ==================
 st.set_page_config(
-    page_title="ICPC Practice Arena – AI Voiceover",
-    page_icon="🏆",
-    layout="wide"
+    page_title="AI Video Voice Translator | GlobalInternet.py",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
+# ================== Styling ==================
 st.markdown(
     """
     <style>
@@ -179,6 +180,7 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
         os.remove(concat_file)
         return os.path.getsize(output_path) > 0
 
+# ================== TRANSLATION FUNCTION (Groq) ==================
 def translate_text(text, target_language_name, groq_client):
     prompt = f"""You are a professional translator. Translate the following English text into {target_language_name}. 
 The translation must be natural, fluent, and culturally appropriate. 
@@ -201,6 +203,7 @@ Translated text ({target_language_name}):"""
         st.error(f"Translation failed: {e}")
         return text
 
+# ================== Download functions ==================
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -316,9 +319,9 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
     return False
 
-# ================== Sidebar – Male Voice Preset ==================
+# ================== Sidebar with Voice Selection (now includes Chinese) ==================
 st.sidebar.markdown("## GlobalInternet.py")
-st.sidebar.markdown("### AI Voiceover for ICPC Practice Arena Demo")
+st.sidebar.markdown("### AI Video Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
 st.sidebar.markdown("---")
 
@@ -331,6 +334,8 @@ voice_options = {
     "Français (French Female - Denise)": {"code": "fr-FR-DeniseNeural", "language": "French"},
     "Español (Spanish Male - Alvaro)": {"code": "es-ES-AlvaroNeural", "language": "Spanish"},
     "Español (Spanish Female - Elvira)": {"code": "es-ES-ElviraNeural", "language": "Spanish"},
+    "中文 (Chinese Male - Yunxi)": {"code": "zh-CN-YunxiNeural", "language": "Mandarin Chinese"},
+    "中文 (Chinese Female - Xiaoxiao)": {"code": "zh-CN-XiaoxiaoNeural", "language": "Mandarin Chinese"},
 }
 selected_voice_label = st.sidebar.selectbox("Select Voice for Narration", list(voice_options.keys()))
 voice_code = voice_options[selected_voice_label]["code"]
@@ -338,50 +343,55 @@ target_language = voice_options[selected_voice_label]["language"]
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### How it works")
-st.sidebar.markdown("1. Downloads your silent screen recording from Dropbox.")
-st.sidebar.markdown("2. Translates the English script into the selected language.")
-st.sidebar.markdown("3. A pure native AI voice reads the translated script.")
-st.sidebar.markdown("4. The final video includes voiceover and subtitles – ready to share!")
+st.sidebar.markdown("1. The app downloads your mute video (Dropbox/YouTube).")
+st.sidebar.markdown("2. Your English script is **automatically translated** into the selected language using Groq LLM.")
+st.sidebar.markdown("3. A native AI voice reads the translated script.")
+st.sidebar.markdown("4. The final video includes the voiceover and subtitles – ready to share!")
 
 # ================== Main Interface ==================
-st.title("🎙️ Add Professional AI Voiceover to Your ICPC Demo")
-st.markdown("### The voice will narrate every step – from solving the problem to receiving AI feedback and exploring the sidebar.")
+st.title("🌍 AI Video Voice Translator")
+st.markdown("### Turn any mute video into a multilingual narrated video with a realistic AI voice.")
 
 col_left, col_right = st.columns([2, 1.8])
 
 with col_left:
     st.markdown('<div class="feature-card">', unsafe_allow_html=True)
-    st.markdown("#### Source Video (silent screen recording)")
-    # Your exact Dropbox link – already converted to dl=1
-    default_video_url = "https://www.dropbox.com/scl/fi/j5ww0pg78djihbgtifisy/Algorithmic-Problem-Solver.mp4?rlkey=dm7cl4un01pu8zp2by4cwr0s9&st=ud8gss2m&dl=1"
-    video_url = st.text_input("Video URL (Dropbox, YouTube, or direct MP4):", value=default_video_url)
+    st.markdown("#### Source Video (mute)")
+    video_url = st.text_input("Paste video link (Dropbox, YouTube, direct MP4):", 
+                              value="https://www.dropbox.com/scl/fi/example.mp4?dl=0")
     st.markdown("---")
     
     st.markdown("#### Narration Script (English)")
-    st.markdown("The script below matches every action in your recording. You can edit it if needed.")
-    default_script = """Welcome to the ICPC Practice Arena, built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.
+    st.markdown("Write your script in English. It will be automatically translated into the selected language.")
+    default_script = """Welcome to the Top 10 Most In-Demand Software Solutions for 2025, presented by GlobalInternet.py, built by Gesner Deslandes, Engineer-in-Chief.
 
-First, I click on the **Practice Problem** tab. I enter the array: 10, 9, 2, 5, 3, 7, 101, 18. Then I click **Run & Check Solution**. The app instantly returns: ✅ Correct! The length of the LIS is 4.
+Let's go through the list. Number one: Website builders like Wix, GoDaddy, and Shopify, starting at three to seventeen dollars per month. Ideal for small businesses and online stores.
 
-Now I move to the **AI Coach** tab. I paste my O(n²) solution:
+Number two: Customer Relationship Management, or CRM, with options like Monday CRM, Pipedrive, and Capsule. Prices start at twelve to twenty-four dollars per user per month.
 
-def lis(arr):
-    n = len(arr)
-    dp = [1]*n
-    for i in range(n):
-        for j in range(i):
-            if arr[j] < arr[i]:
-                dp[i] = max(dp[i], dp[j]+1)
-    return max(dp)
+Number three: Project management tools like Zoho Projects, Jira, and TeamGantt, from four to ten dollars per user per month. Perfect for remote teams and IT projects.
 
-I click **Get AI Feedback**. The AI highlights that my code is inefficient for large inputs and suggests the optimal O(n log n) solution using binary search and patience sorting. It also explains key concepts like dynamic programming, binary search, and Fenwick trees.
+Number four: Accounting and finance software such as QuickBooks Online, Xero, and Wave, ranging from free to eighty dollars per month.
 
-Finally, I explore the sidebar. The language selector lets me switch between English, French, and Spanish. The **Global Security Shield** ensures end‑to‑end encryption – all data is secured and anonymized. I also see my contact information, pricing, and a clear “How to use” guide.
+Number five: Email marketing platforms like Brevo, Mailchimp, and GetResponse, starting at nine to nineteen dollars per month.
 
-This is Gesner Deslandes from GlobalInternet.py. Good luck with your ICPC preparation – and remember, we are the best software company ever."""
+Number six: E-commerce platforms including Shopify, Wix Core, and Squarespace, from five to thirty-five dollars per month.
+
+Number seven: Inventory management systems like inFlow Inventory and EZOfficeInventory, priced between forty and one hundred twenty-nine dollars per month.
+
+Number eight: Booking and appointment systems such as Spacebring and Domilocus, from about forty-two to one hundred eighty-five dollars per month.
+
+Number nine: Help desk and customer support software like Freshdesk, HappyFox, and InvGate, at seventeen to twenty-nine dollars per agent per month.
+
+Number ten: Social media management tools like Social Champ, Agorapulse, and Sprout Social, from twenty-nine to one hundred ninety-nine dollars per seat per month.
+
+These ten categories cover the most requested software by small and medium businesses. Commerce and front-office tools make up 29 percent of needs, back-office systems account for 23 percent, and CRMs, collaboration platforms, and cybersecurity are top priorities for growing companies.
+
+Now, how can GlobalInternet.py help you? Instead of paying monthly subscriptions for multiple tools, we build custom, unified software tailored exactly to your workflows. Our pricing is competitive: full source code delivery for twenty-nine dollars, source code plus customization for forty-nine dollars, and custom development quoted per project. We deliver the code by email within twenty-four hours after payment.
+
+Contact us today: Phone (509) 4738 5663, email deslandes78@gmail.com. Visit our website at GlobalInternet.py. We are the best at what we do – let us build your next software solution. Thank you for watching."""
     
-    english_script = st.text_area("English script (must include credit and contact):", height=450, value=default_script)
-    
+    english_script = st.text_area("English script (must include credit):", height=400, value=default_script)
     if "Gesner Deslandes" not in english_script or "GlobalInternet.py" not in english_script:
         st.warning("⚠️ Your script must include the credit: 'Built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.'")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -403,11 +413,8 @@ with col_right:
         else:
             final_english = english_script.strip()
             if "Gesner Deslandes" not in final_english or "GlobalInternet.py" not in final_english:
-                final_english = "This ICPC Practice Arena was built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py. " + final_english
+                final_english = "This presentation is brought to you by GlobalInternet.py, built by Gesner Deslandes, Engineer‑in‑Chief. " + final_english
                 st.info("Added missing credit line to script.")
-            if "(509) 4738 5663" not in final_english:
-                final_english = final_english + " Contact us at (509) 4738 5663 or deslandes78@gmail.com. We are the best software company ever."
-                st.info("Added contact information.")
             
             st.markdown('<div class="status-box">', unsafe_allow_html=True)
             status = st.empty()
@@ -424,10 +431,10 @@ with col_right:
                     raise Exception("Failed to download video. Please check the link.")
                 video_duration = get_duration("video.mp4")
                 if video_duration <= 0:
-                    video_duration = 90.0
+                    video_duration = 30.0
                 status.text(f"Video duration: {video_duration:.1f} seconds")
                 
-                # Translate script if needed
+                # Translate script if target language is not English
                 if target_language.lower() != "english":
                     status.text(f"🔄 Translating script from English to {target_language}...")
                     progress_bar.progress(25)
@@ -444,7 +451,7 @@ with col_right:
                 fallback_voice = "en-US-ChristopherNeural"
                 tts_success = asyncio.run(generate_tts(final_script, output_audio, voice_code, fallback_voice))
                 if not tts_success:
-                    raise Exception("TTS generation failed.")
+                    raise Exception("TTS generation failed. Check network or voice code.")
                 audio_duration = get_duration(output_audio)
                 status.text(f"Voiceover duration: {audio_duration:.1f} seconds")
                 
@@ -484,10 +491,10 @@ with col_right:
                 status.text("✅ Narration complete!")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-                st.success("Your narrated ICPC demo is ready! The voice describes every action exactly.")
+                st.success("Your narrated video is ready. The voice speaks the selected language natively.")
                 st.video(final_output, format="video/mp4")
                 with open(final_output, "rb") as f:
-                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="icpc_demo_narrated.mp4", mime="video/mp4", use_container_width=True)
+                    st.download_button("⬇️ Download Narrated Video (MP4)", f, file_name="narrated_video.mp4", mime="video/mp4", use_container_width=True)
                 
             except Exception as e:
                 progress_bar.empty()
@@ -500,7 +507,7 @@ with col_right:
 st.markdown(
     """
     <div class="footer-white-right">
-        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | Pure Native AI Voice Narration.
+        Built by Gesner Deslandes, Engineer-in-Chief at GlobalInternet.py | AI‑Powered Multilingual Voiceover.
     </div>
     """,
     unsafe_allow_html=True
