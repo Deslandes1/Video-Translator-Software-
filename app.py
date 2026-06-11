@@ -55,7 +55,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ================== Helper Functions (unchanged) ==================
+# ================== Helper Functions ==================
 def get_duration(file_path):
     if not os.path.exists(file_path):
         return 0.0
@@ -319,7 +319,7 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
     return False
 
-# ================== Sidebar with Voice Selection (no change) ==================
+# ================== Sidebar ==================
 st.sidebar.markdown("## GlobalInternet.py")
 st.sidebar.markdown("### AI Video Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
@@ -470,17 +470,16 @@ with col_right:
                 status.text("🎬 Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
                 
-                # --- FIX: Use Noto Sans CJK font for Chinese subtitles ---
-                # The font is installed via packages.txt (fonts-noto-cjk)
+                # ----- FIX: Chinese subtitles with smaller font and bottom margin -----
                 if target_language == "Mandarin Chinese":
-                    # Path to the installed Noto Sans CJK font (Debian/Ubuntu)
+                    # Use installed Noto Sans CJK font (via packages.txt)
                     font_path = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
                     if os.path.exists(font_path):
-                        vf_filter = f"subtitles=subtitles.srt:fontsdir={os.path.dirname(font_path)}:force_style='FontName=Noto Sans CJK SC,FontSize=24'"
+                        vf_filter = f"subtitles=subtitles.srt:fontsdir={os.path.dirname(font_path)}:force_style='FontName=Noto Sans CJK SC,FontSize=18,MarginV=40'"
                     else:
-                        vf_filter = "subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=24'"
+                        vf_filter = "subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=18,MarginV=40'"
                 else:
-                    vf_filter = "subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=24'"
+                    vf_filter = "subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=18,MarginV=40'"
                 
                 cmd = [
                     "ffmpeg", "-i", working_video, "-i", output_audio,
@@ -496,7 +495,7 @@ with col_right:
                     st.error(f"FFmpeg error: {result.stderr}")
                     raise Exception("Mixing failed.")
                 
-                # Cleanup
+                # Cleanup temp files
                 for tmp in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
