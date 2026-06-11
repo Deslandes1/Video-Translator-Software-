@@ -5,8 +5,10 @@ import requests
 import asyncio
 import re
 import edge_tts
+import tempfile
 from groq import Groq
 
+# 尝试导入 yt-dlp，如果失败则设置标志为 False
 try:
     import yt_dlp
     YT_DLP_AVAILABLE = True
@@ -14,14 +16,14 @@ except ImportError:
     YT_DLP_AVAILABLE = False
     st.warning("yt-dlp not installed. For YouTube/Dropbox links, install it: pip install yt-dlp")
 
-# ================== Page Config ==================
+# ================== 页面配置 ==================
 st.set_page_config(
     page_title="AI Video Voice Translator | GlobalInternet.py",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ================== Styling ==================
+# ================== 页面样式 ==================
 st.markdown(
     """
     <style>
@@ -55,7 +57,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ================== Helper Functions ==================
+# ================== 辅助函数 ==================
 def get_duration(file_path):
     if not os.path.exists(file_path):
         return 0.0
@@ -95,11 +97,11 @@ def generate_srt_file(text, duration_sec, output_srt_path):
     chunk_duration = duration_sec / max(1, num_chunks)
 
     def fmt(sec):
-        h = int(sec // 3600)
-        m = int((sec % 3600) // 60)
-        s = int(sec % 60)
-        ms = int((sec % 1) * 1000)
-        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+        hours = int(sec // 3600)
+        minutes = int((sec % 3600) // 60)
+        secs = int(sec % 60)
+        millis = int((sec % 1) * 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
     with open(output_srt_path, "w", encoding="utf-8") as f:
         for idx, chunk in enumerate(chunks):
@@ -180,7 +182,7 @@ async def generate_tts(text, output_path, voice_name, fallback_voice):
         os.remove(concat_file)
         return os.path.getsize(output_path) > 0
 
-# ================== TRANSLATION FUNCTION (Groq) ==================
+# ================== 翻译函数 (Groq) ==================
 def translate_text(text, target_language_name, groq_client):
     prompt = f"""You are a professional translator. Translate the following English text into {target_language_name}. 
 The translation must be natural, fluent, and culturally appropriate. 
@@ -203,7 +205,7 @@ Translated text ({target_language_name}):"""
         st.error(f"Translation failed: {e}")
         return text
 
-# ================== Download functions ==================
+# ================== 下载函数 ==================
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -319,10 +321,29 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
     return False
 
-# ================== Sidebar with Voice Selection (now includes Chinese) ==================
+# ================== 侧边栏, 集成中文字体上传 ==================
 st.sidebar.markdown("## GlobalInternet.py")
 st.sidebar.markdown("### AI Video Voice Translator")
 st.sidebar.markdown("Built by **Gesner Deslandes**, Engineer-in-Chief")
+st.sidebar.markdown("---")
+
+# --- 🆕 新增: 上传中文字体文件 ---
+st.sidebar.markdown("### 📂 中文字幕配置")
+uploaded_font = st.sidebar.file_uploader(
+    "上传中文字体文件 (推荐 simsun.ttc, msyh.ttc 等)", 
+    type=["ttf", "ttc", "otf"]
+)
+
+if uploaded_font is not None:
+    # 将上传的字体保存到当前目录下的一个固定名称文件
+    font_path = os.path.join(os.getcwd(), "chinese_font.ttf")
+    with open(font_path, "wb") as f:
+        f.write(uploaded_font.getbuffer())
+    st.sidebar.success("✅ 中文字体已加载!")
+else:
+    font_path = None
+    st.sidebar.info("请上传一个中文字体文件以正确显示字幕。")
+
 st.sidebar.markdown("---")
 
 voice_options = {
@@ -348,7 +369,7 @@ st.sidebar.markdown("2. Your English script is **automatically translated** into
 st.sidebar.markdown("3. A native AI voice reads the translated script.")
 st.sidebar.markdown("4. The final video includes the voiceover and subtitles – ready to share!")
 
-# ================== Main Interface ==================
+# ================== 主界面 ==================
 st.title("🌍 AI Video Voice Translator")
 st.markdown("### Turn any mute video into a multilingual narrated video with a realistic AI voice.")
 
@@ -434,7 +455,7 @@ with col_right:
                     video_duration = 30.0
                 status.text(f"Video duration: {video_duration:.1f} seconds")
                 
-                # Translate script if target language is not English
+                # 翻译脚本 (如果需要)
                 if target_language.lower() != "english":
                     status.text(f"🔄 Translating script from English to {target_language}...")
                     progress_bar.progress(25)
@@ -451,12 +472,13 @@ with col_right:
                 fallback_voice = "en-US-ChristopherNeural"
                 tts_success = asyncio.run(generate_tts(final_script, output_audio, voice_code, fallback_voice))
                 if not tts_success:
-                    raise Exception("TTS generation failed. Check network or voice code.")
+                    raise Exception("TTS generation failed.")
                 audio_duration = get_duration(output_audio)
                 status.text(f"Voiceover duration: {audio_duration:.1f} seconds")
                 
+                # 同步视频和音频
                 status.text("🔄 Synchronizing video and audio...")
-                progress_bar.progress(75)
+                progress_bar.progress(70)
                 if audio_duration > video_duration:
                     st.warning(f"Voiceover is longer ({audio_duration:.1f}s) than video ({video_duration:.1f}s). Extending video with last frame.")
                     working_video = extend_video_with_last_frame("video.mp4", "extended_video.mp4", audio_duration)
@@ -465,14 +487,28 @@ with col_right:
                     working_video = "video.mp4"
                     final_duration = video_duration
                 
+                # 生成 SRT 字幕文件
                 generate_srt_file(final_script, final_duration, "subtitles.srt")
                 
+                # 烧录字幕 (支持中文)
                 status.text("🎬 Mixing audio and burning subtitles...")
                 final_output = "final_output.mp4"
+                
+                # --- 🆕 关键的修改: 使用上传的中文字体 ---
+                # 检查是否上传了字体以及目标语言是否为中文
+                if target_language == "Mandarin Chinese" and font_path and os.path.exists(font_path):
+                    # 使用 fontfile 参数强制指定中文字体
+                    vf_filter = f"subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=24':fontfile={font_path}"
+                    st.info("✅ 已加载并应用中文字体, 字幕将正确显示中文。")
+                else:
+                    vf_filter = "subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=24'"
+                    if target_language == "Mandarin Chinese" and not font_path:
+                        st.warning("⚠️ 请上传中文字体文件以正确显示中文! 暂时使用备用字体。")
+                
                 cmd = [
                     "ffmpeg", "-i", working_video, "-i", output_audio,
                     "-map", "0:v:0", "-map", "1:a:0",
-                    "-vf", "subtitles=subtitles.srt",
+                    "-vf", vf_filter,
                     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
                     "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-b:a", "128k",
@@ -483,6 +519,7 @@ with col_right:
                     st.error(f"FFmpeg error: {result.stderr}")
                     raise Exception("Mixing failed.")
                 
+                # 清理临时文件
                 for tmp in ["video.mp4", "translated_voice.mp3", "subtitles.srt", "extended_video.mp4"]:
                     if os.path.exists(tmp):
                         os.remove(tmp)
