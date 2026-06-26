@@ -14,6 +14,13 @@ except ImportError:
     YT_DLP_AVAILABLE = False
     st.warning("yt-dlp not installed. For YouTube/Dropbox links, install it: pip install yt-dlp")
 
+# Try to import whisper for transcription
+try:
+    import whisper
+    WHISPER_AVAILABLE = True
+except ImportError:
+    WHISPER_AVAILABLE = False
+
 st.set_page_config(
     page_title="AI Video Voice Translator | GlobalInternet.py",
     layout="wide",
@@ -65,10 +72,6 @@ def get_duration(file_path):
         return 0.0
 
 def extend_video_with_last_frame(original_video, output_video, target_duration):
-    """
-    Extend video to target_duration by freezing the last frame.
-    Uses tpad with clone mode.
-    """
     orig_dur = get_duration(original_video)
     if orig_dur >= target_duration - 0.1:
         subprocess.run([
@@ -91,7 +94,6 @@ def extend_video_with_last_frame(original_video, output_video, target_duration):
         raise Exception("Video extension failed")
 
 def generate_srt_file(text, duration_sec, output_srt_path):
-    # Split text into chunks of max 5 words to keep subtitles short
     words = text.split()
     chunk_size = 5
     chunks = [words[i:i+chunk_size] for i in range(0, len(words), chunk_size)]
@@ -206,7 +208,7 @@ Translated text ({target_language_name}):"""
         st.error(f"Translation failed: {e}")
         return text
 
-# ---------- Download functions (unchanged) ----------
+# ---------- Download functions ----------
 def is_aria2_available():
     try:
         subprocess.run(["aria2c", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -322,6 +324,28 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
     return False
 
+# ---------- New transcription function ----------
+def transcribe_video(video_path):
+    if not WHISPER_AVAILABLE:
+        st.error("Whisper is not installed. Please install openai-whisper: pip install openai-whisper")
+        return None
+    try:
+        # Extract audio to a temporary file
+        audio_path = "temp_audio.wav"
+        cmd = ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio_path, "-y"]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
+            st.error("Failed to extract audio from video. The video may be mute or corrupted.")
+            return None
+        st.info("Loading Whisper model (small) for transcription...")
+        model = whisper.load_model("small")
+        result = model.transcribe(audio_path, language="en")
+        os.remove(audio_path)
+        return result["text"].strip()
+    except Exception as e:
+        st.error(f"Transcription error: {e}")
+        return None
+
 # ---------- Sidebar ----------
 st.sidebar.markdown("## GlobalInternet.py")
 st.sidebar.markdown("### AI Video Voice Translator")
@@ -367,7 +391,12 @@ with col_left:
     
     st.markdown("#### Narration Script (English)")
     st.markdown("Write your script in English. It will be automatically translated into the selected language.")
-    default_script = """Welcome to the Top 10 Most In-Demand Software Solutions for 2025, presented by GlobalInternet.py, built by Gesner Deslandes, Engineer-in-Chief.
+    
+    # If we have a generated script in session state, pre‑fill it
+    if "generated_script" in st.session_state and st.session_state.generated_script:
+        default_script = st.session_state.generated_script
+    else:
+        default_script = """Welcome to the Top 10 Most In-Demand Software Solutions for 2025, presented by GlobalInternet.py, built by Gesner Deslandes, Engineer-in-Chief.
 
 Let's go through the list. Number one: Website builders like Wix, GoDaddy, and Shopify, starting at three to seventeen dollars per month. Ideal for small businesses and online stores.
 
@@ -398,6 +427,30 @@ Contact us today: Phone (509) 4738 5663, email deslandes78@gmail.com. Visit our 
     english_script = st.text_area("English script (must include credit):", height=400, value=default_script)
     if "Gesner Deslandes" not in english_script or "GlobalInternet.py" not in english_script:
         st.warning("⚠️ Your script must include the credit: 'Built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.'")
+    
+    # Button to extract script from video audio
+    st.markdown("---")
+    if st.button("🎤 Extract script from video audio (requires Whisper)"):
+        if not video_url:
+            st.error("Please provide a video URL first.")
+        else:
+            # Download video if not already present
+            if not os.path.exists("video.mp4"):
+                with st.spinner("Downloading video..."):
+                    if not download_video(video_url, "video.mp4"):
+                        st.error("Failed to download video. Please check the link.")
+                    else:
+                        st.success("Video downloaded.")
+            if os.path.exists("video.mp4"):
+                with st.spinner("Transcribing audio..."):
+                    transcript = transcribe_video("video.mp4")
+                    if transcript:
+                        st.session_state.generated_script = transcript
+                        st.success("Transcript generated! You can now edit it if needed.")
+                        st.rerun()
+                    else:
+                        st.error("Transcription failed. The video might have no audio or Whisper is not installed.")
+    
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
