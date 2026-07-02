@@ -208,6 +208,29 @@ Translated text ({target_language_name}):"""
         st.error(f"Translation failed: {e}")
         return text
 
+# ---------- NEW: Translate English to Haitian Creole with grammar correction ----------
+def translate_to_haitian_creole(text, groq_client):
+    prompt = f"""You are a professional translator and Creole language expert. Your task is to translate the following English text into Haitian Creole. 
+The translation must be grammatically correct, use proper Creole spelling and syntax, and sound natural to a native speaker.
+Return ONLY the translated text, nothing else.
+
+English text:
+{text}
+
+Translated text in Haitian Creole:"""
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1500
+        )
+        creole = response.choices[0].message.content.strip()
+        return creole
+    except Exception as e:
+        st.error(f"Translation to Haitian Creole failed: {e}")
+        return text
+
 # ---------- Download functions ----------
 def is_aria2_available():
     try:
@@ -428,29 +451,65 @@ Contact us today: Phone (509) 4738 5663, email deslandes78@gmail.com. Visit our 
     if "Gesner Deslandes" not in english_script or "GlobalInternet.py" not in english_script:
         st.warning("⚠️ Your script must include the credit: 'Built by Gesner Deslandes, Engineer‑in‑Chief at GlobalInternet.py.'")
     
-    # Button to extract script from video audio
+    # ---- NEW SECTION for Haitian Creole script ----
     st.markdown("---")
-    if st.button("🎤 Extract script from video audio (requires Whisper)"):
-        if not video_url:
-            st.error("Please provide a video URL first.")
-        else:
-            # Download video if not already present
-            if not os.path.exists("video.mp4"):
-                with st.spinner("Downloading video..."):
-                    if not download_video(video_url, "video.mp4"):
-                        st.error("Failed to download video. Please check the link.")
-                    else:
-                        st.success("Video downloaded.")
-            if os.path.exists("video.mp4"):
-                with st.spinner("Transcribing audio..."):
-                    transcript = transcribe_video("video.mp4")
-                    if transcript:
-                        st.session_state.generated_script = transcript
-                        st.success("Transcript generated! You can now edit it if needed.")
-                        st.rerun()
-                    else:
-                        st.error("Transcription failed. The video might have no audio or Whisper is not installed.")
-    
+    st.markdown("#### 🇭🇹 Haitian Creole Script (generated from video audio)")
+    creole_script = st.text_area("Haitian Creole script (auto‑generated)", height=200, key="creole_script", value=st.session_state.get("creole_script", ""))
+    st.caption("Click the button below to extract the audio transcript and convert it into properly written Haitian Creole.")
+
+    # Buttons for extraction
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("🎤 Extract script from video audio (requires Whisper)"):
+            if not video_url:
+                st.error("Please provide a video URL first.")
+            else:
+                # Download video if not already present
+                if not os.path.exists("video.mp4"):
+                    with st.spinner("Downloading video..."):
+                        if not download_video(video_url, "video.mp4"):
+                            st.error("Failed to download video. Please check the link.")
+                        else:
+                            st.success("Video downloaded.")
+                if os.path.exists("video.mp4"):
+                    with st.spinner("Transcribing audio..."):
+                        transcript = transcribe_video("video.mp4")
+                        if transcript:
+                            st.session_state.generated_script = transcript
+                            st.success("Transcript generated! You can now edit it if needed.")
+                            st.rerun()
+                        else:
+                            st.error("Transcription failed. The video might have no audio or Whisper is not installed.")
+    with col_btn2:
+        if st.button("🇭🇹 Extract & Convert to Haitian Creole Script"):
+            if not video_url:
+                st.error("Please provide a video URL first.")
+            elif "GROQ_API_KEY" not in st.secrets:
+                st.error("Missing Groq API key. Add GROQ_API_KEY to your Streamlit secrets for translation.")
+            else:
+                # Download video if not already present
+                if not os.path.exists("video.mp4"):
+                    with st.spinner("Downloading video..."):
+                        if not download_video(video_url, "video.mp4"):
+                            st.error("Failed to download video. Please check the link.")
+                        else:
+                            st.success("Video downloaded.")
+                if os.path.exists("video.mp4"):
+                    with st.spinner("Transcribing audio..."):
+                        transcript = transcribe_video("video.mp4")
+                        if transcript:
+                            with st.spinner("Translating to Haitian Creole with grammar correction..."):
+                                groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+                                creole_text = translate_to_haitian_creole(transcript, groq_client)
+                                if creole_text and creole_text != transcript:
+                                    st.session_state.creole_script = creole_text
+                                    st.success("Haitian Creole script generated with proper grammar and spelling!")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to generate Haitian Creole script. Please check your Groq API key.")
+                        else:
+                            st.error("Transcription failed. The video might have no audio or Whisper is not installed.")
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
