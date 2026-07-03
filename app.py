@@ -208,7 +208,7 @@ Translated text ({target_language_name}):"""
         st.error(f"Translation failed: {e}")
         return text
 
-# ---------- NEW: Translate English to Haitian Creole with grammar correction ----------
+# ---------- Translate English to Haitian Creole ----------
 def translate_to_haitian_creole(text, groq_client):
     prompt = f"""You are a professional translator and Creole language expert. Your task is to translate the following English text into Haitian Creole. 
 The translation must be grammatically correct, use proper Creole spelling and syntax, and sound natural to a native speaker.
@@ -347,8 +347,12 @@ def download_video(url, output_path, cookie_file=None):
         st.error(f"Direct download failed: {e}")
     return False
 
-# ---------- New transcription function ----------
-def transcribe_video(video_path):
+# ---------- Transcription function with language support ----------
+def transcribe_video(video_path, language=None):
+    """
+    Transcribe audio from video using Whisper.
+    - language: optional, e.g., "en", "ru", "fr", "es", "zh". If None, auto‑detect.
+    """
     if not WHISPER_AVAILABLE:
         st.error("Whisper is not installed. Please install openai-whisper: pip install openai-whisper")
         return None
@@ -360,9 +364,9 @@ def transcribe_video(video_path):
         if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
             st.error("Failed to extract audio from video. The video may be mute or corrupted.")
             return None
-        st.info("Loading Whisper model (small) for transcription...")
+        st.info(f"Loading Whisper model (small) for transcription (language: {language or 'auto'})...")
         model = whisper.load_model("small")
-        result = model.transcribe(audio_path, language="en")
+        result = model.transcribe(audio_path, language=language)
         os.remove(audio_path)
         return result["text"].strip()
     except Exception as e:
@@ -384,6 +388,8 @@ voice_options = {
     "Français (French Female - Denise)": {"code": "fr-FR-DeniseNeural", "language": "French"},
     "Español (Spanish Male - Alvaro)": {"code": "es-ES-AlvaroNeural", "language": "Spanish"},
     "Español (Spanish Female - Elvira)": {"code": "es-ES-ElviraNeural", "language": "Spanish"},
+    "Русский (Russian Male - Dmitry)": {"code": "ru-RU-DmitryNeural", "language": "Russian"},
+    "Русский (Russian Female - Svetlana)": {"code": "ru-RU-SvetlanaNeural", "language": "Russian"},
     "中文 (Chinese Male - Yunxi)": {"code": "zh-CN-YunxiNeural", "language": "Mandarin Chinese"},
     "中文 (Chinese Female - Xiaoxiao)": {"code": "zh-CN-XiaoxiaoNeural", "language": "Mandarin Chinese"},
 }
@@ -411,6 +417,18 @@ with col_left:
     video_url = st.text_input("Paste video link (Dropbox, YouTube, direct MP4):", 
                               value="https://www.dropbox.com/scl/fi/example.mp4?dl=0")
     st.markdown("---")
+    
+    # ---- NEW: Audio Language for Extraction ----
+    audio_lang_options = {
+        "Auto Detect": None,
+        "English": "en",
+        "Russian": "ru",
+        "French": "fr",
+        "Spanish": "es",
+        "Mandarin Chinese": "zh"
+    }
+    selected_audio_lang_label = st.selectbox("Audio Language for Extraction", list(audio_lang_options.keys()), index=0)
+    audio_lang_code = audio_lang_options[selected_audio_lang_label]
     
     st.markdown("#### Narration Script (English)")
     st.markdown("Write your script in English. It will be automatically translated into the selected language.")
@@ -472,8 +490,8 @@ Contact us today: Phone (509) 4738 5663, email deslandes78@gmail.com. Visit our 
                         else:
                             st.success("Video downloaded.")
                 if os.path.exists("video.mp4"):
-                    with st.spinner("Transcribing audio..."):
-                        transcript = transcribe_video("video.mp4")
+                    with st.spinner(f"Transcribing audio (language: {selected_audio_lang_label})..."):
+                        transcript = transcribe_video("video.mp4", language=audio_lang_code)
                         if transcript:
                             st.session_state.generated_script = transcript
                             st.success("Transcript generated! You can now edit it if needed.")
@@ -495,18 +513,48 @@ Contact us today: Phone (509) 4738 5663, email deslandes78@gmail.com. Visit our 
                         else:
                             st.success("Video downloaded.")
                 if os.path.exists("video.mp4"):
-                    with st.spinner("Transcribing audio..."):
-                        transcript = transcribe_video("video.mp4")
+                    with st.spinner(f"Transcribing audio (language: {selected_audio_lang_label})..."):
+                        transcript = transcribe_video("video.mp4", language=audio_lang_code)
                         if transcript:
+                            # We need English transcript for Creole translation; if we transcribed in Russian, we should translate Russian->English? 
+                            # For simplicity, we'll assume the user wants Creole from English transcript.
+                            # If the audio is not English, the transcript will be in that language. We'll translate it to Creole directly (from that language) or we can first translate to English.
+                            # For now, we'll try to translate directly from the transcript language to Creole (using Groq with prompt for source language).
+                            # But Groq might not handle translation from Russian to Creole well. We can add a step: if audio_lang_code is not None and not English, we can translate to English first, then to Creole.
+                            # To keep it simple, we'll pass the transcript as is (assuming it's English) – but we'll modify the prompt to specify source language.
+                            # Let's change the prompt: we'll tell the model the source language.
+                            # We'll add a parameter to translate_to_haitian_creole that accepts source language.
                             with st.spinner("Translating to Haitian Creole with grammar correction..."):
                                 groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-                                creole_text = translate_to_haitian_creole(transcript, groq_client)
-                                if creole_text and creole_text != transcript:
-                                    st.session_state.creole_script = creole_text
-                                    st.success("Haitian Creole script generated with proper grammar and spelling!")
-                                    st.rerun()
-                                else:
-                                    st.error("Failed to generate Haitian Creole script. Please check your Groq API key.")
+                                # We'll create a new function that handles any source language.
+                                # For now, we'll assume the transcript is in the language we extracted.
+                                # If it's not English, we'll ask Groq to translate from that language to Creole.
+                                # We'll pass the source language name.
+                                source_lang_name = selected_audio_lang_label if selected_audio_lang_label != "Auto Detect" else "English (auto-detected)"
+                                prompt = f"""You are a professional translator and Creole language expert. Your task is to translate the following text from {source_lang_name} into Haitian Creole. 
+The translation must be grammatically correct, use proper Creole spelling and syntax, and sound natural to a native speaker.
+Return ONLY the translated text, nothing else.
+
+Text to translate:
+{transcript}
+
+Translated text in Haitian Creole:"""
+                                try:
+                                    response = groq_client.chat.completions.create(
+                                        model="llama-3.1-8b-instant",
+                                        messages=[{"role": "user", "content": prompt}],
+                                        temperature=0.3,
+                                        max_tokens=1500
+                                    )
+                                    creole_text = response.choices[0].message.content.strip()
+                                    if creole_text:
+                                        st.session_state.creole_script = creole_text
+                                        st.success("Haitian Creole script generated with proper grammar and spelling!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to generate Haitian Creole script.")
+                                except Exception as e:
+                                    st.error(f"Translation error: {e}")
                         else:
                             st.error("Transcription failed. The video might have no audio or Whisper is not installed.")
 
